@@ -27,16 +27,19 @@ class CallFailed(Exception):
 Probe = Callable[[str, list[Step]], ProbeResult]
 
 
-def twiml_for(steps: list[Step], tail_seconds: int = 40) -> str:
-    out = ["<Response>"]
+def steps_twiml(steps: list[Step]) -> str:
+    out = []
     for s in steps:
         whole = math.floor(s.wait)
         halves = math.ceil((s.wait - whole) * 2 - 1e-9)
         if whole > 0:
             out.append(f'<Pause length="{whole}"/>')
         out.append(f'<Play digits="{"w" * halves}{s.key}"/>')
-    out.append(f'<Pause length="{tail_seconds}"/><Hangup/></Response>')
     return "".join(out)
+
+
+def twiml_for(steps: list[Step], tail_seconds: int = 40) -> str:
+    return f'<Response>{steps_twiml(steps)}<Pause length="{tail_seconds}"/><Hangup/></Response>'
 
 
 def _download(url: str, sid: str, token: str) -> bytes:
