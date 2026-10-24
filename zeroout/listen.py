@@ -6,6 +6,8 @@ from .config import Settings, load_settings
 from .llm import chat_json
 from .models import OUTCOMES, VALID_KEYS, Observation, Option
 
+MAX_PROMPT_SECONDS = 120
+
 PROMPT = f"""You are listening to a recording of a phone call to a company's automated system.
 Reply with ONLY a JSON object of this shape:
 {{"prompt_text": str, "options": [{{"key": str, "label": str}}], "outcome": str, "prompt_seconds": number}}
@@ -48,7 +50,7 @@ def parse_observation(raw: Any) -> Observation | None:
         seconds = float(raw["prompt_seconds"])
     except (KeyError, TypeError, ValueError):
         return None
-    if not seconds >= 0 or seconds == float("inf"):
+    if not 0 <= seconds <= MAX_PROMPT_SECONDS:
         return None
     return Observation(str(raw.get("prompt_text") or ""), options, raw["outcome"], seconds)
 

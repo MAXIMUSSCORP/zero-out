@@ -1,3 +1,4 @@
+import pytest
 import base64
 import json
 
@@ -189,3 +190,40 @@ def test_listen_builds_audio_message_and_parses():
 def test_listen_returns_none_when_chat_fails_or_unparsable():
     assert listen(make_settings(), b"x", chat=lambda s, m, ms: None) is None
     assert listen(make_settings(), b"x", chat=lambda s, m, ms: raw(outcome="robot")) is None
+
+
+def test_parse_rejects_prompt_seconds_over_120():
+    assert parse_observation(raw(prompt_seconds=120)) is not None
+    assert parse_observation(raw(prompt_seconds=120.5)) is None
+
+
+def api_error(cls):
+    req = httpx.Request("POST", "http://x")
+    if cls is openai.APIStatusError or cls is openai.InternalServerError:
+        return openai.InternalServerError("boom", response=httpx.Response(500, request=req), body=None)
+    return cls(request=req)
+
+
+@pytest.mark.parametrize("cls", [openai.APIConnectionError, openai.APITimeoutError, openai.InternalServerError])
+def test_chat_json_api_errors_return_none(cls, caplog):
+    c = FakeClient([api_error(cls)])
+    assert chat_json(make_settings(), "m", MSGS, client=c) is None
+    assert cls.__name__ in caplog.text
+    assert len(c.calls) == 1
+
+
+def test_chat_json_client_has_timeout_60(monkeypatch):
+    seen = {}
+
+    class Fake:
+        def __init__(self, **kw):
+            seen.update(kw)
+            self.chat = self
+            self.completions = self
+
+        def create(self, **kw):
+            raise api_error(openai.APIConnectionError)
+
+    monkeypatch.setattr(openai, "OpenAI", Fake)
+    assert chat_json(make_settings(), "m", MSGS) is None
+    assert seen["timeout"] == 60

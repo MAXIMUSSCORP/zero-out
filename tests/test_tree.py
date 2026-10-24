@@ -241,14 +241,6 @@ def test_nano_same_meaning():
     assert "a" in json.dumps(calls[0][2]) and "b" in json.dumps(calls[0][2])
 
 
-def test_nano_same_meaning_falls_back_to_false():
-    s = SimpleNamespace(model_nano="nano")
-    assert tree.nano_same_meaning(s, chat=lambda *a: None)("a", "b") is False
-    assert tree.nano_same_meaning(s, chat=lambda *a: {"same": "yes"})("a", "b") is False
-    assert tree.nano_same_meaning(s, chat=lambda *a: {"same": False})("a", "b") is False
-    assert tree.nano_same_meaning(s, chat=lambda *a: {})("a", "b") is False
-
-
 def test_change_never_requeues_human_descendants():
     conn, cid, rid = setup()
     m(conn, cid, rid, "", menu())
@@ -265,3 +257,112 @@ def test_observation_records_merge_result():
     m(conn, cid, rid, "", menu("New"), NO)
     rows = conn.execute("SELECT result FROM observations ORDER BY id").fetchall()
     assert [r["result"] for r in rows] == ["mapped", "confirmed", "changed"]
+
+
+def test_nano_same_meaning_none_when_undecided():
+    s = SimpleNamespace(model_nano="nano")
+    for out in (None, {"same": "yes"}, {}, [1]):
+        assert tree.nano_same_meaning(s, chat=lambda *a, out=out: out)("a", "b") is None
+    assert tree.nano_same_meaning(s, chat=lambda *a: {"same": False})("a", "b") is False
+
+
+def test_nano_same_meaning_none_on_exception():
+    s = SimpleNamespace(model_nano="nano")
+
+    def boom(*a):
+        raise RuntimeError("down")
+
+    assert tree.nano_same_meaning(s, chat=boom)("a", "b") is None
+
+
+def test_undecided_same_meaning_leaves_node_untouched():
+    conn, cid, rid = setup()
+    m(conn, cid, rid, "", menu())
+    m(conn, cid, rid, "1", Observation("hold", [], "hold"))
+    before = dict(db.get_node(conn, cid, ""))
+    assert m(conn, cid, rid, "", menu("other words"), lambda a, b: None) == "undecided"
+    assert dict(db.get_node(conn, cid, "")) == before
+    assert status(conn, cid, "1") == "mapped"
+    rows = conn.execute("SELECT result FROM observations ORDER BY id").fetchall()
+    assert [r["result"] for r in rows] == ["mapped", "mapped", "undecided"]
+
+
+def test_same_meaning_called_without_lock_held():
+    import threading
+
+    conn, cid, rid = setup()
+    m(conn, cid, rid, "", menu())
+    got = []
+
+    def grab():
+        got.append(db.LOCK.acquire(timeout=1))
+        db.LOCK.release()
+
+    def check(a, b):
+        t = threading.Thread(target=grab)
+        t.start()
+        t.join()
+        return True
+
+    m(conn, cid, rid, "", menu("x"), check)
+    assert got == [True]
+
+
+def test_merge_holds_lock_for_whole_transaction():
+    import threading
+
+    conn, cid, rid = setup()
+    seen = []
+    done = threading.Event()
+
+    def other():
+        seen.append(db.LOCK.acquire(timeout=0.05))
+
+
+    class Spy:
+        def __init__(self, c):
+            self.c = c
+
+        def execute(self, *a):
+            if "UPDATE observations" in a[0]:
+                t = threading.Thread(target=other)
+                t.start()
+                t.join()
+            return self.c.execute(*a)
+
+        def __getattr__(self, n):
+            return getattr(self.c, n)
+
+    tree.merge(Spy(conn), cid, "", menu(), rid, "", YES)
+    assert seen == [False]
+
+
+def test_removed_keys_delete_subtree_kept_keys_stale():
+    conn, cid, rid = setup()
+    m(conn, cid, rid, "", menu(keys=("1", "2")))
+    m(conn, cid, rid, "1", menu(keys=("5",)))
+    m(conn, cid, rid, "1.5", Observation("h", [], "hold"))
+    m(conn, cid, rid, "2", Observation("h", [], "hold"))
+    obs_before = n_obs(conn, cid)
+    assert m(conn, cid, rid, "", menu("new", keys=("2", "3")), NO) == "changed"
+    assert db.get_node(conn, cid, "1") is None and db.get_node(conn, cid, "1.5") is None
+    assert status(conn, cid, "2") == "stale"
+    assert status(conn, cid, "3") == "unexplored"
+    assert n_obs(conn, cid) == obs_before + 1
+    assert conn.execute("SELECT COUNT(*) FROM observations WHERE path='1.5'").fetchone()[0] == 1
+
+
+def test_changed_to_terminal_deletes_all_descendants():
+    conn, cid, rid = setup()
+    m(conn, cid, rid, "", menu())
+    m(conn, cid, rid, "1", Observation("h", [], "hold"))
+    m(conn, cid, rid, "", Observation("say it", [], "speech_menu"), NO)
+    assert db.get_node(conn, cid, "1") is None and db.get_node(conn, cid, "2") is None
+
+
+def test_timing_correction_capped_at_ten():
+    conn, cid, rid = setup()
+    inv = Observation("invalid", [], "invalid_input")
+    for _ in range(8):
+        m(conn, cid, rid, "1", inv)
+    assert db.get_node(conn, cid, "1")["timing_correction"] == 10.0

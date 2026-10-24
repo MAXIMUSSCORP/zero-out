@@ -1,4 +1,5 @@
 import json
+import logging
 import time
 from typing import Any, Callable
 
@@ -6,6 +7,7 @@ import openai
 
 from .config import Settings
 
+log = logging.getLogger(__name__)
 MAX_TRIES = 3
 BASE_DELAY = 2.0
 JSON_NUDGE = {"role": "system", "content": "Return ONLY valid JSON."}
@@ -34,7 +36,7 @@ def chat_json(
     client: Any = None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict | None:
-    client = client or openai.OpenAI(base_url=settings.tf_base_url, api_key=settings.tf_api_key)
+    client = client or openai.OpenAI(base_url=settings.tf_base_url, api_key=settings.tf_api_key, timeout=60)
     msgs = list(messages)
     json_retried = False
     delay = BASE_DELAY
@@ -51,6 +53,9 @@ def chat_json(
             sleep(_retry_after(e, delay))
             delay *= 2
             continue
+        except openai.APIError as e:  # includes connection and timeout errors
+            log.warning("model call failed: %s", type(e).__name__)
+            return None
         out = _parse(resp.choices[0].message.content)
         if out is not None:
             return out

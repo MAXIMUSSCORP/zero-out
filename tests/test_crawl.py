@@ -269,3 +269,161 @@ def test_recording_segments_decode_per_boundary():
     rec = FakeMenu.recording("2.1", [3.0, 6.0])
     assert [decode(s) for s in segment(rec, [3.0, 6.0])] == ["", "2", "2.1"]
     assert decode(b"junk") is None
+
+
+def test_undecided_counts_as_done_for_path(tmp_path):
+    conn, cid, st = setup(tmp_path)
+    fm = FakeMenu(fake_tree())
+    seen = []
+
+    def same(a, b):
+        seen.append(1)
+        return None
+
+    crawl(conn, st, cid, fm.probe, fm.listen, same, sleep=lambda s: None)
+    # re-crawl a mapped tree: nothing is unexplored, so same is never needed
+    conn.execute("UPDATE nodes SET status='stale' WHERE path='1'")
+    conn.commit()
+    crawl(conn, st, cid, fm.probe, fm.listen, same, sleep=lambda s: None)
+    assert seen == [1]
+    assert fm.calls.count("1") == 2
+    assert status(conn, cid, "1") == "stale"
+
+
+def test_budget_is_per_company_per_day(tmp_path):
+    conn, cid, st = setup(tmp_path)
+    fm = FakeMenu(fake_tree())
+    first = crawl(conn, st, cid, fm.probe, fm.listen, YES, Budget(max_calls=3), sleep=lambda s: None)
+    assert run_row(conn, first)["calls"] == 3
+    conn.execute("UPDATE nodes SET status='stale'")
+    conn.commit()
+    second = crawl(conn, st, cid, fm.probe, fm.listen, YES, Budget(max_calls=3), sleep=lambda s: None)
+    assert run_row(conn, second)["calls"] == 0
+    assert len(fm.calls) == 3
+
+
+def test_run_row_records_only_own_calls_and_minutes(tmp_path):
+    conn, cid, st = setup(tmp_path)
+    prev = db.start_run(conn, cid, "crawl", "x")
+    conn.execute("UPDATE runs SET calls = 5, minutes = 5 WHERE id = ?", (prev,))
+    conn.commit()
+    fm = FakeMenu({"": Observation("hold on", [], "hold", 1.0)})
+    rid = crawl(conn, st, cid, fm.probe, fm.listen, YES, sleep=lambda s: None)
+    assert run_row(conn, rid)["calls"] == 1
+    assert run_row(conn, rid)["minutes"] == 1
+
+
+def test_minutes_billed_per_started_minute(tmp_path):
+    conn, cid, st = setup(tmp_path)
+    fm = FakeMenu({"": Observation("hold on", [], "hold", 1.0)})
+
+    def probe(number, steps):
+        r = fm.probe(number, steps)
+        return ProbeResult(r.wav, 61.0)
+
+    rid = crawl(conn, st, cid, probe, fm.listen, YES, sleep=lambda s: None)
+    assert run_row(conn, rid)["minutes"] == 2
+
+
+def test_failed_call_billed_by_its_seconds(tmp_path):
+    conn, cid, st = setup(tmp_path)
+
+    def probe(number, steps):
+        raise CallFailed("timed out", seconds=90)
+
+    rid = crawl(conn, st, cid, probe, lambda w: None, YES, sleep=lambda s: None)
+    assert run_row(conn, rid)["calls"] == 3 and run_row(conn, rid)["minutes"] == 6
+
+
+def test_failed_call_with_no_seconds_bills_nothing(tmp_path):
+    conn, cid, st = setup(tmp_path)
+
+    def probe(number, steps):
+        raise CallFailed("busy")
+
+    rid = crawl(conn, st, cid, probe, lambda w: None, YES, sleep=lambda s: None)
+    assert run_row(conn, rid)["minutes"] == 0
+
+
+def test_merge_exception_is_logged_and_crawl_continues(tmp_path):
+    conn, cid, st = setup(tmp_path)
+    fm = FakeMenu(fake_tree())
+
+    def same(a, b):
+        raise RuntimeError("model down")
+
+    crawl(conn, st, cid, fm.probe, fm.listen, YES, sleep=lambda s: None)
+    conn.execute("UPDATE nodes SET status='stale' WHERE path IN ('', '1')")
+    conn.commit()
+    fm.calls.clear()
+    rid = crawl(conn, st, cid, fm.probe, fm.listen, same, sleep=lambda s: None)
+    assert sorted(fm.calls) == ["", "1"]
+    assert run_row(conn, rid)["ended_at"]
+
+
+def test_tail_cut_at_effective_press_time(tmp_path, monkeypatch):
+    import zeroout.crawl as crawl_mod
+
+    conn, cid, st = setup(tmp_path)
+    cuts = []
+    real = crawl_mod.tail
+    monkeypatch.setattr(crawl_mod, "tail", lambda wav, s: (cuts.append(s), real(wav, s))[1])
+    fm = FakeMenu({"": menu(), "1": Observation("hold", [], "hold", 2.0)})
+    crawl(conn, st, cid, fm.probe, fm.listen, YES, Budget(max_depth=1), sleep=lambda s: None)
+    # root prompt 4.0 + margin 1.5 = 5.5
+    assert cuts[0] == 0 and 5.5 in cuts
+
+
+def test_tail_cut_uses_rounded_up_wait(tmp_path, monkeypatch):
+    import zeroout.crawl as crawl_mod
+
+    conn, cid, st = setup(tmp_path)
+    conn.execute("INSERT INTO nodes (company_id, path, prompt_seconds, status) VALUES (?, '', 4.2, 'mapped')", (cid,))
+    conn.execute("INSERT INTO nodes (company_id, path, status) VALUES (?, '1', 'unexplored')", (cid,))
+    conn.commit()
+    cuts = []
+    real = crawl_mod.tail
+    monkeypatch.setattr(crawl_mod, "tail", lambda wav, s: (cuts.append(s), real(wav, s))[1])
+    fm = FakeMenu({"1": Observation("hold", [], "hold", 2.0)})
+    crawl(conn, st, cid, fm.probe, fm.listen, YES, sleep=lambda s: None)
+    assert cuts == [6.0]  # 4.2 + 1.5 = 5.7 -> 6.0
+
+
+@pytest.mark.parametrize("outcome", ["human", "voicemail"])
+def test_no_audio_kept_for_real_people(tmp_path, outcome):
+    conn, cid, st = setup(tmp_path)
+    fm = FakeMenu({"": Observation("hello", [], outcome, 1.0)})
+    rid = crawl(conn, st, cid, fm.probe, fm.listen, YES, sleep=lambda s: None)
+    assert not os.path.exists(tmp_path / "audio" / str(cid)) or os.listdir(tmp_path / "audio" / str(cid)) == []
+    assert conn.execute("SELECT audio_url FROM observations").fetchone()[0] == ""
+
+
+def test_crawl_run_updates_hold_lock(tmp_path):
+    import threading
+
+    conn, cid, st = setup(tmp_path)
+    seen = []
+
+    def grab():
+        ok = db.LOCK.acquire(timeout=0.05)
+        seen.append(ok)
+        if ok:
+            db.LOCK.release()
+
+    class Spy:
+        def __init__(self, c):
+            self.c = c
+
+        def execute(self, sql, *a):
+            if sql.startswith("UPDATE runs"):
+                t = threading.Thread(target=grab)
+                t.start()
+                t.join()
+            return self.c.execute(sql, *a)
+
+        def __getattr__(self, n):
+            return getattr(self.c, n)
+
+    fm = FakeMenu({"": Observation("hold on", [], "hold", 1.0)})
+    crawl(Spy(conn), st, cid, fm.probe, fm.listen, YES, sleep=lambda s: None)
+    assert seen and not any(seen)

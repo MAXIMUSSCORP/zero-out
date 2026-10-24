@@ -90,3 +90,13 @@ def test_press_times():
 
 def test_press_times_empty():
     assert press_times([]) == []
+
+
+def test_effective_wait_rounds_up_to_half_second():
+    from zeroout.paths import effective_wait
+
+    assert [effective_wait(w) for w in (0, 0.5, 1.0, 7.7, 7.01, 13.5, 8.0)] == [0, 0.5, 1.0, 8.0, 7.5, 13.5, 8.0]
+
+
+def test_press_times_use_effective_wait():
+    assert press_times([Step("1", 7.7), Step("2", 3.2)]) == [8.0, 11.5]

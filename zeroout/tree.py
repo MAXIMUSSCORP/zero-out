@@ -6,6 +6,7 @@ from typing import Callable
 from . import db
 from .models import Observation
 
+MAX_CORRECTION = 10.0
 TERMINAL = ("human", "needs_input", "speech_menu")
 
 NANO_SYSTEM = (
@@ -28,11 +29,12 @@ def _implied_status(outcome: str) -> str:
 
 
 def ensure_root(conn: sqlite3.Connection, company_id: int) -> None:
-    conn.execute(
-        "INSERT OR IGNORE INTO nodes (company_id, path, status) VALUES (?, '', 'unexplored')",
-        (company_id,),
-    )
-    conn.commit()
+    with db.LOCK:
+        conn.execute(
+            "INSERT OR IGNORE INTO nodes (company_id, path, status) VALUES (?, '', 'unexplored')",
+            (company_id,),
+        )
+        conn.commit()
 
 
 def _add_children(conn: sqlite3.Connection, cid: int, path: str, obs: Observation) -> None:
@@ -47,6 +49,24 @@ def _keys(options_json: str | None) -> set[str]:
     return {o["key"] for o in json.loads(options_json or "[]")}
 
 
+def _revise_descendants(conn: sqlite3.Connection, cid: int, path: str, kept: set[str]) -> None:
+    """Under a changed node: delete subtrees of removed keys, mark the rest stale."""
+    prefix = "" if path == "" else path + "."
+    rows = conn.execute(
+        "SELECT path, status FROM nodes WHERE company_id = ? AND path != '' AND path != ? "
+        "AND substr(path, 1, ?) = ?",
+        (cid, path, len(prefix), prefix),
+    ).fetchall()
+    for r in rows:
+        if r["path"][len(prefix):].split(".", 1)[0] not in kept:
+            conn.execute("DELETE FROM nodes WHERE company_id = ? AND path = ?", (cid, r["path"]))
+        elif r["status"] not in ("unexplored", "human"):  # human nodes are only re-checked by Connect me
+            conn.execute(
+                "UPDATE nodes SET status = 'stale' WHERE company_id = ? AND path = ?",
+                (cid, r["path"]),
+            )
+
+
 def merge(
     conn: sqlite3.Connection,
     company_id: int,
@@ -54,7 +74,37 @@ def merge(
     obs: Observation,
     run_id: int,
     audio_path: str,
-    same_meaning: Callable[[str, str], bool],
+    same_meaning: Callable[[str, str], bool | None],
+) -> str:
+    # The model call runs before the lock so a slow answer never blocks the site.
+    meaning: bool | None = None
+    node = db.get_node(conn, company_id, path)
+    if (
+        obs.outcome != "invalid_input"
+        and node is not None
+        and node["status"] != "unexplored"
+        and node["outcome"] == obs.outcome
+        and _keys(node["options_json"]) == {o.key for o in obs.options}
+    ):
+        meaning = same_meaning(node["prompt_text"] or "", obs.prompt_text)
+    with db.LOCK:
+        try:
+            result = _merge_locked(conn, company_id, path, obs, run_id, audio_path, meaning)
+        except BaseException:
+            conn.rollback()
+            raise
+        conn.commit()
+    return result
+
+
+def _merge_locked(
+    conn: sqlite3.Connection,
+    company_id: int,
+    path: str,
+    obs: Observation,
+    run_id: int,
+    audio_path: str,
+    meaning: bool | None,
 ) -> str:
     node = db.get_node(conn, company_id, path)
     if obs.outcome == "invalid_input":
@@ -66,11 +116,10 @@ def merge(
             )
         else:
             conn.execute(
-                "UPDATE nodes SET timing_correction = COALESCE(timing_correction, 0) + 2.0 "
+                "UPDATE nodes SET timing_correction = MIN(COALESCE(timing_correction, 0) + 2.0, ?) "
                 "WHERE company_id = ? AND path = ?",
-                (company_id, path),
+                (MAX_CORRECTION, company_id, path),
             )
-        conn.commit()
         return "retry"
 
     ts = db.now()
@@ -98,57 +147,56 @@ def merge(
         if obs.outcome == "menu":
             _add_children(conn, company_id, path, obs)
         result = "mapped" if status == "mapped" else "terminal"
-    else:
-        same = (
-            node["outcome"] == obs.outcome
-            and _keys(node["options_json"]) == {o.key for o in obs.options}
-            and same_meaning(node["prompt_text"] or "", obs.prompt_text)
+    elif (
+        node["outcome"] == obs.outcome
+        and _keys(node["options_json"]) == {o.key for o in obs.options}
+        and meaning is None
+    ):
+        result = "undecided"
+    elif (
+        node["outcome"] == obs.outcome
+        and _keys(node["options_json"]) == {o.key for o in obs.options}
+        and meaning
+    ):
+        conn.execute(
+            "UPDATE nodes SET confirmations = confirmations + 1, last_confirmed = ?, "
+            "status = ? WHERE company_id = ? AND path = ?",
+            (ts, status, company_id, path),
         )
-        if same:
-            conn.execute(
-                "UPDATE nodes SET confirmations = confirmations + 1, last_confirmed = ?, "
-                "status = ? WHERE company_id = ? AND path = ?",
-                (ts, status, company_id, path),
-            )
-            result = "confirmed"
-        else:
-            conn.execute(
-                "UPDATE nodes SET prompt_text = ?, options_json = ?, outcome = ?, "
-                "prompt_seconds = ?, status = 'changed', confirmations = 1, last_confirmed = ? "
-                "WHERE company_id = ? AND path = ?",
-                (obs.prompt_text, options_json, obs.outcome, obs.prompt_seconds, ts,
-                 company_id, path),
-            )
-            prefix = "" if path == "" else path + "."
-            conn.execute(
-                "UPDATE nodes SET status = 'stale' WHERE company_id = ? AND path != '' "
-                "AND path != ? AND substr(path, 1, ?) = ? "
-                # human nodes are never re-crawled; only Connect me re-checks them.
-                "AND status NOT IN ('unexplored', 'human')",
-                (company_id, path, len(prefix), prefix),
-            )
-            if obs.outcome == "menu":
-                _add_children(conn, company_id, path, obs)
-            result = "changed"
+        result = "confirmed"
+    else:
+        conn.execute(
+            "UPDATE nodes SET prompt_text = ?, options_json = ?, outcome = ?, "
+            "prompt_seconds = ?, status = 'changed', confirmations = 1, last_confirmed = ? "
+            "WHERE company_id = ? AND path = ?",
+            (obs.prompt_text, options_json, obs.outcome, obs.prompt_seconds, ts,
+             company_id, path),
+        )
+        kept = {o.key for o in obs.options} if obs.outcome == "menu" else set()
+        _revise_descendants(conn, company_id, path, kept)
+        if obs.outcome == "menu":
+            _add_children(conn, company_id, path, obs)
+        result = "changed"
     conn.execute("UPDATE observations SET result = ? WHERE id = ?", (result, obs_id))
-    conn.commit()
     return result
 
 
 def unexplored(conn: sqlite3.Connection, company_id: int, max_depth: int) -> list[str]:
-    rows = conn.execute(
-        "SELECT path FROM nodes WHERE company_id = ? AND status IN ('unexplored', 'stale')",
-        (company_id,),
-    ).fetchall()
+    with db.LOCK:
+        rows = conn.execute(
+            "SELECT path FROM nodes WHERE company_id = ? AND status IN ('unexplored', 'stale')",
+            (company_id,),
+        ).fetchall()
     paths = [r["path"] for r in rows if _depth(r["path"]) <= max_depth]
     return sorted(paths, key=lambda p: (_depth(p), p))
 
 
 def tree_json(conn: sqlite3.Connection, company_id: int) -> dict | None:
-    rows = {
-        r["path"]: r
-        for r in conn.execute("SELECT * FROM nodes WHERE company_id = ?", (company_id,))
-    }
+    with db.LOCK:
+        rows = {
+            r["path"]: r
+            for r in conn.execute("SELECT * FROM nodes WHERE company_id = ?", (company_id,))
+        }
     if "" not in rows:
         return None
     kids: dict[str, list[str]] = {}
@@ -176,8 +224,9 @@ def tree_json(conn: sqlite3.Connection, company_id: int) -> dict | None:
     return build("", "", "")
 
 
-def nano_same_meaning(settings, chat=None) -> Callable[[str, str], bool]:
-    def same(a: str, b: str) -> bool:
+def nano_same_meaning(settings, chat=None) -> Callable[[str, str], bool | None]:
+    """True/False when the model answers; None when it gives no usable answer."""
+    def same(a: str, b: str) -> bool | None:
         fn = chat
         if fn is None:
             from .llm import chat_json as fn
@@ -185,8 +234,11 @@ def nano_same_meaning(settings, chat=None) -> Callable[[str, str], bool]:
             {"role": "system", "content": NANO_SYSTEM},
             {"role": "user", "content": f"Prompt A: {a}\nPrompt B: {b}"},
         ]
-        out = fn(settings, settings.model_nano, messages)
+        try:
+            out = fn(settings, settings.model_nano, messages)
+        except Exception:
+            return None
         v = out.get("same") if isinstance(out, dict) else None
-        return v if isinstance(v, bool) else False
+        return v if isinstance(v, bool) else None
 
     return same

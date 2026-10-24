@@ -1,3 +1,4 @@
+import math
 import re
 import sqlite3
 from itertools import accumulate
@@ -45,5 +46,10 @@ def build_path(conn: sqlite3.Connection, company_id: int, path: str, margin: flo
     return steps
 
 
+def effective_wait(w: float) -> float:
+    """Twilio pauses whole seconds then 0.5 s 'w' digits, so a wait rounds up to the next 0.5 s."""
+    return math.ceil(w * 2 - 1e-9) / 2
+
+
 def press_times(steps: list[Step]) -> list[float]:
-    return list(accumulate(s.wait for s in steps))
+    return list(accumulate(effective_wait(s.wait) for s in steps))
