@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS observations (
     run_id INTEGER REFERENCES runs(id),
     raw_json TEXT NOT NULL,
     audio_url TEXT,
+    result TEXT,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS runs (

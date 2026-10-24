@@ -74,11 +74,11 @@ def merge(
         return "retry"
 
     ts = db.now()
-    conn.execute(
+    obs_id = conn.execute(
         "INSERT INTO observations (company_id, path, run_id, raw_json, audio_url, created_at) "
         "VALUES (?, ?, ?, ?, ?, ?)",
         (company_id, path, run_id, json.dumps(asdict(obs)), audio_path, ts),
-    )
+    ).lastrowid
     options_json = json.dumps([asdict(o) for o in obs.options])
     status = _implied_status(obs.outcome)
     result: str
@@ -130,6 +130,7 @@ def merge(
             if obs.outcome == "menu":
                 _add_children(conn, company_id, path, obs)
             result = "changed"
+    conn.execute("UPDATE observations SET result = ? WHERE id = ?", (result, obs_id))
     conn.commit()
     return result
 

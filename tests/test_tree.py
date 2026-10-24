@@ -256,3 +256,12 @@ def test_change_never_requeues_human_descendants():
     m(conn, cid, rid, "", menu("New prompt"), NO)
     assert status(conn, cid, "2") == "human"
     assert "2" not in tree.unexplored(conn, cid, 4)
+
+
+def test_observation_records_merge_result():
+    conn, cid, rid = setup()
+    m(conn, cid, rid, "", menu())
+    m(conn, cid, rid, "", menu())
+    m(conn, cid, rid, "", menu("New"), NO)
+    rows = conn.execute("SELECT result FROM observations ORDER BY id").fetchall()
+    assert [r["result"] for r in rows] == ["mapped", "confirmed", "changed"]
