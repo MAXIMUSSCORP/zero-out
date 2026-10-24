@@ -1,0 +1,19 @@
+<details{% if not node.path %} open{% endif %}>
+  <summary>
+    <strong>{{ node.key if node.path else 'Main menu' }}{% if node.label %} &rarr; {{ node.label }}{% endif %}</strong>
+    <span class="badge">{{ node.status }}</span>
+    <span class="badge">{{ node.confirmations or 0 }} confirmation{{ '' if node.confirmations == 1 else 's' }}</span>
+  </summary>
+  {% if node.prompt_text %}<p>{{ node.prompt_text }}</p>{% endif %}
+  {% if node.last_confirmed %}<div class="muted">Last confirmed {{ node.last_confirmed }}</div>{% endif %}
+  {% if node.obs_id %}<audio controls preload="none" src="/audio/{{ node.obs_id }}"></audio>{% endif %}
+  {% if node.status != 'unexplored' %}
+  <form class="inline" method="post" action="/c/{{ company.id }}/connect">
+    <input type="hidden" name="path" value="{{ node.path }}">
+    <button class="small">Connect me</button>
+  </form>
+  {% endif %}
+  {% for child in node.children %}
+    {% with node=child %}{% include "_tree_node.html" %}{% endwith %}
+  {% endfor %}
+</details>

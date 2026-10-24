@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block body %}
+<p>Skip the phone menu. Pick a company, ask what you need, get the keys to press.</p>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+<ul class="plain">
+{% for c in companies %}
+  <li><a href="/c/{{ c.id }}">{{ c.name }}</a> <span class="muted">{{ c.number }} &middot; {{ c.mapped }} mapped node{{ '' if c.mapped == 1 else 's' }}</span></li>
+{% else %}
+  <li class="muted">No companies yet.</li>
+{% endfor %}
+</ul>
+<section>
+<h2>Add a company</h2>
+<form method="post" action="/companies">
+  <input name="name" placeholder="Company name" maxlength="100" required><br>
+  <input name="number" placeholder="Toll-free number, e.g. 1-800-555-1234" required><br>
+  <button>Add</button>
+</form>
+</section>
+{% endblock %}

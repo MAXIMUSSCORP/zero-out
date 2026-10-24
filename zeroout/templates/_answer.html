@@ -1,0 +1,9 @@
+{% if answer.path %}
+<p><strong>Press {{ keys }}</strong></p>
+{% endif %}
+<p>{{ answer.explanation }}</p>
+{% if answer.stale %}<p class="stale">Warning: this menu may be stale. It changed recently and is being re-checked.</p>{% endif %}
+{% if answer.last_confirmed %}<p class="muted">Last confirmed {{ answer.last_confirmed }}</p>{% endif %}
+{% if not answer.path and answer.top_options %}
+<ul>{% for o in answer.top_options %}<li>{{ o.key }} &rarr; {{ o.label }}</li>{% endfor %}</ul>
+{% endif %}

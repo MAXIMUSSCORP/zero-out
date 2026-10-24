@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}{{ company.name }} - Zero Out{% endblock %}
+{% block body %}
+<h2>{{ company.name }}</h2>
+<p class="muted">{{ company.number }}</p>
+<form method="post" action="/c/{{ company.id }}/crawl">
+  <button{% if running %} disabled{% endif %}>Map this number</button>
+</form>
+
+<section>
+<h3>What do you need?</h3>
+<form hx-post="/c/{{ company.id }}/ask" hx-target="#answer" hx-swap="innerHTML">
+  <input name="question" placeholder="e.g. I want to dispute a charge" maxlength="500" required>
+  <button>Ask</button>
+</form>
+<div id="answer" aria-live="polite"></div>
+</section>
+
+<section>
+<h3>Menu</h3>
+{% if tree %}{% with node=tree %}{% include "_tree_node.html" %}{% endwith %}
+{% else %}<p class="muted">Not mapped yet.</p>{% endif %}
+</section>
+
+<section>
+<h3>Connect me</h3>
+{% if verified %}<p class="muted">Phone verified. Use a Connect me button in the menu above.</p>
+{% else %}
+<p class="muted">We call you, then dial the company and press the keys. Verify your phone first.</p>
+<form hx-post="/verify/start" hx-target="#verify-msg">
+  <input name="phone" type="tel" placeholder="Your phone number" required>
+  <button>Send code</button>
+</form>
+<form hx-post="/verify/check" hx-target="#verify-msg">
+  <input name="phone" type="tel" placeholder="Your phone number" required>
+  <input name="code" inputmode="numeric" placeholder="Code" required>
+  <button>Verify</button>
+</form>
+<div id="verify-msg"></div>
+{% endif %}
+</section>
+
+<section>
+<h3>Changes</h3>
+<ul class="plain">
+{% for c in changes %}
+  <li>{{ c.path or 'Main menu' }} <span class="muted">{{ c.created_at }}</span></li>
+{% else %}
+  <li class="muted">No changes seen.</li>
+{% endfor %}
+</ul>
+</section>
+{% endblock %}
