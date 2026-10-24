@@ -1,0 +1,34 @@
+[project]
+name = "zeroout"
+version = "0.1.0"
+description = "A community map of US toll-free phone menus, kept fresh by Nemotron on Nebius Token Factory."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "jinja2",
+    "python-multipart",
+    "itsdangerous",
+    "twilio",
+    "openai",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "httpx"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["zeroout"]
+
+[tool.setuptools.package-data]
+zeroout = ["templates/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
