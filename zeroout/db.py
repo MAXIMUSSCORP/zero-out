@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import threading
 from datetime import datetime, timezone
 
 SCHEMA = """
@@ -46,6 +47,11 @@ CREATE TABLE IF NOT EXISTS runs (
 """
 
 
+# One connection is shared by request handlers and background calls; hold this
+# around every transaction (and multi-statement read) on it.
+LOCK = threading.RLock()
+
+
 def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -61,23 +67,26 @@ def connect(path: str) -> sqlite3.Connection:
 
 
 def add_company(conn: sqlite3.Connection, name: str, number: str) -> int:
-    cur = conn.execute(
-        "INSERT INTO companies (name, number) VALUES (?, ?)", (name, number)
-    )
-    conn.commit()
+    with LOCK:
+        cur = conn.execute(
+            "INSERT INTO companies (name, number) VALUES (?, ?)", (name, number)
+        )
+        conn.commit()
     return cur.lastrowid
 
 
 def get_node(conn: sqlite3.Connection, company_id: int, path: str) -> sqlite3.Row | None:
-    return conn.execute(
-        "SELECT * FROM nodes WHERE company_id = ? AND path = ?", (company_id, path)
-    ).fetchone()
+    with LOCK:
+        return conn.execute(
+            "SELECT * FROM nodes WHERE company_id = ? AND path = ?", (company_id, path)
+        ).fetchone()
 
 
 def start_run(conn: sqlite3.Connection, company_id: int, kind: str, contributor: str) -> int:
-    cur = conn.execute(
-        "INSERT INTO runs (company_id, kind, contributor_handle, started_at) VALUES (?, ?, ?, ?)",
-        (company_id, kind, contributor, now()),
-    )
-    conn.commit()
+    with LOCK:
+        cur = conn.execute(
+            "INSERT INTO runs (company_id, kind, contributor_handle, started_at) VALUES (?, ?, ?, ?)",
+            (company_id, kind, contributor, now()),
+        )
+        conn.commit()
     return cur.lastrowid
