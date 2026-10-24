@@ -89,14 +89,16 @@ def twilio_probe(
         if not is_toll_free(number):
             raise ValueError("only toll-free numbers can be called")
         total_wait = sum(effective_wait(s.wait) for s in steps)
+        time_limit = int(total_wait + TAIL_SECONDS + HANGUP_SLACK)
+        polls_max = -(-max(CALL_TIMEOUT, time_limit) // POLL_SECONDS)
         try:
             call = client.calls.create(
                 to=number, from_=settings.twilio_from, twiml=twiml_for(steps), record=True,
-                time_limit=int(total_wait + TAIL_SECONDS + HANGUP_SLACK),
+                time_limit=time_limit,
             )
             sid = call.sid
             info = None
-            for polls in range(CALL_TIMEOUT // POLL_SECONDS):
+            for polls in range(polls_max):
                 info = client.calls(sid).fetch()
                 if info.status in FAILED:
                     raise CallFailed(f"call {info.status}")
@@ -108,7 +110,7 @@ def twilio_probe(
                     client.calls(sid).update(status="completed")
                 except Exception:
                     pass
-                raise CallFailed("call timed out", seconds=CALL_TIMEOUT)
+                raise CallFailed("call timed out", seconds=polls_max * POLL_SECONDS)
 
             billed = float(info.duration or 0)
             for _ in range(RECORDING_TIMEOUT // POLL_SECONDS):

@@ -272,3 +272,19 @@ def test_download_follows_at_most_one_redirect():
             _download(f"http://127.0.0.1:{srv.server_port}/r.wav", "SID", "TOK")
     finally:
         srv.shutdown()
+
+
+def test_deep_path_polls_past_default_timeout():
+    # 100 s of key waits plus the 40 s tail runs past 120 s; the poll must outlast the call's time_limit.
+    c = FakeClient(["in-progress"] * 50 + ["completed"], [SimpleNamespace(sid="RE9")])
+    r = twilio_probe(st(), client=c, sleep=lambda s: None, download=lambda *a: b"W")(
+        "+18005550000", [Step("1", 100.0)])
+    assert r.wav == b"W" and c.updated == []
+
+
+def test_poll_deadline_covers_time_limit():
+    c = FakeClient(["in-progress"])
+    sleeps = []
+    with pytest.raises(CallFailed) as e:
+        twilio_probe(st(), client=c, sleep=sleeps.append)("+18005550000", [Step("1", 100.0)])
+    assert e.value.seconds == sum(sleeps) >= c.created["time_limit"]

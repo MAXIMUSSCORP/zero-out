@@ -365,3 +365,15 @@ def test_start_connect_success_starts_thread_and_reserves_cost(tmp_path, monkeyp
     assert r["cost_usd"] == pytest.approx(RESERVE_MINUTES * s.rate_per_min)
     assert r["ended_at"] is None
     assert USER not in str(FakeThread.started[0].args[:5])
+
+
+def test_start_connect_failed_dial_releases_reserve(tmp_path, monkeypatch):
+    conn, cid, s, menu = mapped(tmp_path)
+    FakeThread.started = []
+    monkeypatch.setattr(connect_mod.threading, "Thread", FakeThread)
+    client = FakeClient([], ["in-progress"], user_create_raises=True)
+    with pytest.raises(RuntimeError):
+        start_connect(conn, s, cid, "1", USER, client=client, listen=menu.listen, same_meaning=YES)
+    r = conn.execute("SELECT minutes, cost_usd, ended_at FROM runs WHERE kind = 'connect'").fetchone()
+    assert r["minutes"] == 0 and r["cost_usd"] == 0 and r["ended_at"]
+    assert FakeThread.started == []

@@ -221,7 +221,8 @@ def start_connect(
     same_meaning: Callable[[str, str], bool | None] | None = None,
     on_done: Callable[[], None] | None = None,
 ) -> int:
-    row = conn.execute("SELECT number FROM companies WHERE id = ?", (company_id,)).fetchone()
+    with LOCK:
+        row = conn.execute("SELECT number FROM companies WHERE id = ?", (company_id,)).fetchone()
     if row is None or not is_toll_free(row["number"]):
         raise ValueError("Connect me only calls toll-free numbers")
     node = get_node(conn, company_id, path)
@@ -242,16 +243,20 @@ def start_connect(
     run_id = start_run(conn, company_id, "connect", "connect")
     # Provisional charge so concurrent connects see this spend; replaced when the run ends.
     _save_run(conn, run_id, RESERVE_MINUTES, settings, final=False)
-    call = client.calls.create(
-        to=row["number"],
-        from_=settings.twilio_from,
-        time_limit=CALL_TIME_LIMIT,
-        twiml=(
-            f"<Response>{steps_twiml(steps)}<Dial>"
-            '<Conference startConferenceOnEnter="true" endConferenceOnExit="true" '
-            f'beep="false" waitUrl="">zo-{run_id}</Conference></Dial></Response>'
-        ),
-    )
+    try:
+        call = client.calls.create(
+            to=row["number"],
+            from_=settings.twilio_from,
+            time_limit=CALL_TIME_LIMIT,
+            twiml=(
+                f"<Response>{steps_twiml(steps)}<Dial>"
+                '<Conference startConferenceOnEnter="true" endConferenceOnExit="true" '
+                f'beep="false" waitUrl="">zo-{run_id}</Conference></Dial></Response>'
+            ),
+        )
+    except BaseException:
+        _save_run(conn, run_id, 0, settings)  # nothing was dialled, so release the reserve
+        raise
     threading.Thread(
         target=_run_connect,
         args=(conn, settings, run_id, company_id, path, user_e164, steps, client, call.sid,

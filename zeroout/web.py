@@ -210,7 +210,8 @@ def create_app(
             app.state.running.add(cid)
 
     def company(cid: int):
-        row = conn.execute("SELECT * FROM companies WHERE id = ?", (cid,)).fetchone()
+        with db.LOCK:
+            row = conn.execute("SELECT * FROM companies WHERE id = ?", (cid,)).fetchone()
         if row is None:
             raise HTTPException(404, "Unknown company")
         return row

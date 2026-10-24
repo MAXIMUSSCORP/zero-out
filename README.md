@@ -52,6 +52,7 @@ Deploy notes:
 - `SESSION_SECRET` must be at least 32 characters (the app refuses to start otherwise). Generate one with `python -c 'import secrets;print(secrets.token_urlsafe(48))'`.
 - Session cookies are HTTPS-only. Set `COOKIE_SECURE=0` only for local http development.
 - The container runs uvicorn with `--proxy-headers` so rate limits see the real client IP. Set `FORWARDED_ALLOW_IPS` (read by uvicorn from the environment) to your reverse proxy's IP address, never `*`; otherwise clients could spoof their IP.
+- The proxy must pass the public `Host` header through unchanged (nginx: `proxy_set_header Host $host;`). Form posts are checked against it, so a rewritten Host makes every Connect me and verify request fail with 403.
 
 ## Evaluation
 
