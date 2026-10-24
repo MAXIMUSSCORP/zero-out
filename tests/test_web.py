@@ -1,4 +1,6 @@
+import re
 import sqlite3
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,10 +12,14 @@ from zeroout.crawl import crawl
 from zeroout.models import Observation, Option
 
 YES = lambda a, b: True
+SECRET = "s" * 48
+HX = {"HX-Request": "true"}
+EVIL = {"Origin": "http://evil.example"}
 
 
 def settings(tmp_path, cap=10.0):
-    return Settings("", "", "", "", "", "", "", "", "", cap, "secret", audio_dir=str(tmp_path / "audio"))
+    return Settings("", "", "", "", "", "", "", "", "", cap, SECRET,
+                    audio_dir=str(tmp_path / "audio"), cookie_secure=False)
 
 
 def fake_tree():
@@ -333,3 +339,246 @@ def test_import_has_no_side_effects():
     import importlib
     importlib.reload(web)
     assert "app" not in vars(web)
+
+
+# --- security fixes ---------------------------------------------------------
+
+
+@pytest.mark.parametrize("secret", ["", "short", "change-me", "x" * 31])
+def test_weak_session_secret_refused(env, secret):
+    st = settings(env.st.audio_dir and __import__("pathlib").Path(env.st.audio_dir).parent)
+    st.session_secret = secret
+    with pytest.raises(RuntimeError):
+        web.create_app(st, env.conn)
+
+
+def test_session_cookie_flags(env):
+    st = settings(__import__("pathlib").Path(env.st.audio_dir).parent)
+    st.cookie_secure = True
+    c = TestClient(env.build(st), base_url="https://testserver")
+    c.post("/verify/check", data={"phone": "(415) 555-0100", "code": "123456"})
+    cookie = c.post("/verify/check", data={"phone": "(415) 555-0100", "code": "123456"}).headers["set-cookie"].lower()
+    assert "secure" in cookie and "samesite=lax" in cookie and "httponly" in cookie and "max-age=3600" in cookie
+
+
+def test_cookie_secure_setting_from_env(monkeypatch):
+    from zeroout.config import load_settings
+    monkeypatch.setattr("zeroout.config.load_dotenv", lambda: None)
+    monkeypatch.delenv("COOKIE_SECURE", raising=False)
+    assert load_settings().cookie_secure is True
+    for v, want in (("0", False), ("false", False), ("1", True)):
+        monkeypatch.setenv("COOKIE_SECURE", v)
+        assert load_settings().cookie_secure is want
+
+
+def test_cross_origin_post_rejected_on_verify_and_connect(env):
+    verified(env)
+    for url, data in (
+        ("/verify/start", {"phone": "4155550100"}),
+        ("/verify/check", {"phone": "4155550100", "code": "123456"}),
+        (f"/c/{env.cid}/connect", {"path": "2"}),
+    ):
+        assert env.client.post(url, data=data, headers=EVIL).status_code == 403
+    assert not env.connect.calls and env.verify.started == ["+14155550100"]
+
+
+def test_same_origin_post_allowed(env):
+    r = env.client.post("/verify/start", data={"phone": "4155550100"}, headers={"Origin": "http://testserver"})
+    assert r.status_code == 200
+
+
+@pytest.mark.parametrize("phone", ["416-555-0100", "(876) 555-0100", "787 555 0100", "671-555-0100", "900-555-0100", "976-555-0100"])
+def test_verify_start_rejects_non_us_and_premium(env, phone):
+    r = env.client.post("/verify/start", data={"phone": phone})
+    assert r.status_code == 400 and not env.verify.started
+
+
+def test_verify_start_per_phone_limit(env):
+    codes = []
+    for i in range(4):
+        codes.append(env.client.post("/verify/start", data={"phone": "4155550100"}).status_code)
+    assert codes == [200, 200, 200, 429]
+    assert len(env.verify.started) == 3
+
+
+def test_verify_start_per_phone_limit_is_per_phone(env):
+    for _ in range(3):
+        env.client.post("/verify/start", data={"phone": "4155550100"})
+    assert env.client.post("/verify/start", data={"phone": "4155550101"}).status_code == 200
+
+
+def test_verify_daily_cap(env):
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    env.app.state.verify_daily = {"day": today, "count": web.VERIFY_DAILY_CAP}
+    r = env.client.post("/verify/start", data={"phone": "4155550100"})
+    assert r.status_code == 429 and not env.verify.started
+    env.app.state.verify_daily = {"day": "2000-01-01", "count": web.VERIFY_DAILY_CAP}
+    assert env.client.post("/verify/start", data={"phone": "4155550100"}).status_code == 200
+
+
+def test_verify_daily_cap_counts_sends(env):
+    env.client.post("/verify/start", data={"phone": "4155550100"})
+    assert env.app.state.verify_daily["count"] == 1
+
+
+def test_crawl_rate_limited_per_ip(env):
+    codes = []
+    for _ in range(4):
+        codes.append(env.client.post(f"/c/{env.cid}/crawl", follow_redirects=False).status_code)
+        env.app.state.running.discard(env.cid)
+    assert codes[:3] == [303] * 3 and codes[3] == 429
+
+
+def test_add_company_rate_limited_per_ip(env):
+    codes = [
+        env.client.post("/companies", data={"name": "X", "number": f"888555{i:04d}"}, follow_redirects=False).status_code
+        for i in range(6)
+    ]
+    assert codes[:5] == [303] * 5 and codes[5] == 429
+
+
+@pytest.mark.parametrize("calls,minutes", [(40, 0), (0, 30)])
+def test_crawl_blocked_when_company_used_up_today(env, monkeypatch, calls, minutes):
+    monkeypatch.setattr(web, "calls_today", lambda conn, cid: (calls, minutes))
+    r = env.client.post(f"/c/{env.cid}/crawl")
+    assert r.status_code == 429 and "already mapped as much as allowed today" in r.text
+    assert env.cid not in env.app.state.running
+    assert db.get_node(env.conn, env.cid, "") is None
+
+
+def test_crawl_allowed_just_under_daily_company_limit(env, monkeypatch):
+    monkeypatch.setattr(web, "calls_today", lambda conn, cid: (39, 29.9))
+    assert env.client.post(f"/c/{env.cid}/crawl", follow_redirects=False).status_code == 303
+
+
+def test_duplicate_company_integrity_race_redirects(env, monkeypatch):
+    def racing(conn, name, number):
+        conn.execute("INSERT INTO companies (name, number) VALUES (?,?)", (name, number))
+        conn.commit()
+        raise sqlite3.IntegrityError("UNIQUE")
+    monkeypatch.setattr(web.db, "add_company", racing)
+    r = env.client.post("/companies", data={"name": "New", "number": "888 555 1111"}, follow_redirects=False)
+    new = env.conn.execute("SELECT id FROM companies WHERE number='+18885551111'").fetchone()[0]
+    assert r.status_code == 303 and r.headers["location"] == f"/c/{new}"
+
+
+def test_handlers_hold_db_lock(env, monkeypatch):
+    mapped(env)
+    held = []
+
+    class Spy:
+        def __init__(self, inner):
+            self.inner = inner
+
+        def __enter__(self):
+            held.append(1)
+            return self.inner.__enter__()
+
+        def __exit__(self, *a):
+            held.pop()
+            return self.inner.__exit__(*a)
+
+    monkeypatch.setattr(web.db, "LOCK", Spy(db.LOCK))
+    seen = []
+    real = web.tree_json
+    monkeypatch.setattr(web, "tree_json", lambda c, cid: seen.append(bool(held)) or real(c, cid))
+    env.client.get(f"/c/{env.cid}")
+    env.client.get(f"/api/companies/{env.cid}/tree")
+    assert seen == [True, True]
+
+
+def test_rate_limiter_deletes_emptied_keys_and_sweeps():
+    t = [0.0]
+    rl = web.RateLimiter(5, 10, clock=lambda: t[0])
+    for i in range(50):
+        rl.allow(f"ip{i}")
+    assert len(rl.hits) == 50
+    t[0] = 100
+    for _ in range(1000):
+        rl.allow("live")
+    assert set(rl.hits) == {"live"}
+
+
+def test_rate_limiter_denied_key_kept():
+    rl = web.RateLimiter(1, 10, clock=lambda: 0.0)
+    rl.allow("a")
+    assert not rl.allow("a") and "a" in rl.hits
+
+
+def test_security_headers_and_static_htmx(env):
+    for r in (env.client.get("/"), env.client.get("/static/htmx.min.js"), env.client.get("/nope")):
+        assert r.headers["content-security-policy"] == web.CSP
+        assert r.headers["x-content-type-options"] == "nosniff"
+        assert r.headers["referrer-policy"] == "same-origin"
+    assert "frame-ancestors 'none'" in web.CSP and "script-src 'self'" in web.CSP
+    assert env.client.get("/static/htmx.min.js").status_code == 200
+
+
+def test_docs_disabled(env):
+    for u in ("/docs", "/redoc", "/openapi.json"):
+        assert env.client.get(u).status_code == 404
+
+
+def test_no_inline_script_and_local_htmx(env):
+    mapped(env)
+    for url in ("/", f"/c/{env.cid}"):
+        html = env.client.get(url).text
+        assert 'src="/static/htmx.min.js"' in html and "unpkg" not in html
+        assert not re.search(r"<script(?![^>]*\bsrc=)", html)
+        assert not re.search(r"\son\w+=", html)
+
+
+def test_htmx_errors_are_200_partials(env):
+    mapped(env)
+    r = env.client.post("/verify/start", data={"phone": "123"}, headers=HX)
+    assert r.status_code == 200 and "<p>" in r.text
+    r = env.client.post("/verify/check", data={"phone": "4155550100", "code": "000000"}, headers=HX)
+    assert r.status_code == 200 and "Wrong or expired code" in r.text
+    r = env.client.post("/verify/start", data={"phone": "4155550100"}, headers={**HX, **EVIL})
+    assert r.status_code == 200 and not env.verify.started
+    for _ in range(25):
+        r = env.client.post(f"/c/{env.cid}/ask", data={"question": "q"}, headers=HX)
+    assert r.status_code == 200 and "Too many requests" in r.text
+
+
+def test_htmx_error_message_still_escaped(env):
+    env.verify.start = lambda e: (_ for _ in ()).throw(RuntimeError("<b>x</b>"))
+    r = env.client.post("/verify/start", data={"phone": "4155550100"}, headers=HX)
+    assert "<b>" not in r.text
+
+
+def test_non_htmx_keeps_real_status(env):
+    assert env.client.post("/verify/start", data={"phone": "123"}).status_code == 400
+
+
+def test_htmx_does_not_mask_other_routes(env):
+    assert env.client.post("/c/99/crawl", headers=HX).status_code == 404
+
+
+def _audio_obs(env, tmp_path, outcome):
+    f = tmp_path / "audio" / f"{outcome}.wav"
+    f.parent.mkdir(exist_ok=True)
+    f.write_bytes(b"RIFF")
+    env.conn.execute(
+        "INSERT INTO observations (company_id, path, raw_json, audio_url, created_at) VALUES (?,?,?,?,?)",
+        (env.cid, "7", '{"outcome": "%s"}' % outcome, str(f), "t"),
+    )
+    return env.conn.execute("SELECT MAX(id) FROM observations").fetchone()[0]
+
+
+@pytest.mark.parametrize("outcome", ["human", "voicemail"])
+def test_audio_of_real_people_is_404(env, tmp_path, outcome):
+    oid = _audio_obs(env, tmp_path, outcome)
+    assert env.client.get(f"/audio/{oid}").status_code == 404
+
+
+def test_audio_of_menu_still_served(env, tmp_path):
+    assert env.client.get(f"/audio/{_audio_obs(env, tmp_path, 'menu')}").status_code == 200
+
+
+def test_tree_does_not_link_human_audio(env):
+    mapped(env)
+    human = env.conn.execute(
+        "SELECT id FROM observations WHERE path='2' AND audio_url IS NOT NULL").fetchone()[0]
+    page = env.client.get(f"/c/{env.cid}").text
+    assert f"/audio/{human}\"" not in page and "/audio/" in page

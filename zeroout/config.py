@@ -22,6 +22,7 @@ class Settings:
     audio_dir: str = "data/audio"
     # Seconds added after a parent prompt before pressing the next key.
     key_margin: float = 1.5
+    cookie_secure: bool = True
 
 
 def load_settings() -> Settings:
@@ -43,4 +44,5 @@ def load_settings() -> Settings:
         db_path=env("DB_PATH", "data/zeroout.db"),
         audio_dir=env("AUDIO_DIR", "data/audio"),
         key_margin=float(env("KEY_MARGIN", "1.5")),
+        cookie_secure=env("COOKIE_SECURE", "1").strip().lower() not in ("0", "false"),
     )

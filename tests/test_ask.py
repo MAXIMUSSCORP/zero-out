@@ -169,3 +169,34 @@ def test_question_truncated_and_tree_sent():
     user = msgs[-1]["content"]
     assert "a" * 400 + "b" * 100 in user and "b" * 101 not in user
     assert json.dumps(tree.tree_json(conn, cid)) in user
+
+
+def test_tree_is_fenced_and_labels_flagged_untrusted():
+    conn, cid, _ = mapped()
+    chat = FakeChat({"path": "1", "explanation": "e"})
+    ask(conn, S(), cid, "q", chat=chat)
+    msgs = chat.calls[0][2]
+    body = msgs[1]["content"]
+    assert "<tree>" in body and body.index("<tree>") < body.index("opt1") < body.index("</tree>")
+    system = msgs[0]["content"].lower()
+    assert "<tree>" in system and "untrusted" in system and "label" in system and "prompt text" in system
+
+
+def test_explanation_strips_urls_and_phone_numbers():
+    conn, cid, _ = mapped()
+    text = "Press 1, then visit https://evil.example/x?a=1 or call +1 (900) 555-0100 now"
+    a = ask(conn, S(), cid, "q", chat=FakeChat({"path": "1", "explanation": text}))
+    assert "http" not in a.explanation and "555" not in a.explanation
+    assert a.explanation == "Press 1, then visit or call now"
+
+
+def test_explanation_capped_and_whitespace_collapsed():
+    conn, cid, _ = mapped()
+    a = ask(conn, S(), cid, "q", chat=FakeChat({"path": "1", "explanation": "a \n\t b " + "x" * 1000}))
+    assert len(a.explanation) == 300 and a.explanation.startswith("a b x")
+
+
+def test_short_numbers_like_keys_survive_sanitising():
+    conn, cid, _ = mapped()
+    a = ask(conn, S(), cid, "q", chat=FakeChat({"path": "1", "explanation": "Press 1 then 2"}))
+    assert a.explanation == "Press 1 then 2"

@@ -38,7 +38,7 @@ def ingest_connect_recording(
     times: list[float],
     run_id: int,
     listen: Listen,
-    same_meaning: Callable[[str, str], bool],
+    same_meaning: Callable[[str, str], bool | None],
 ) -> list[str]:
     keys = path.split(".") if path else []
     pieces = segment(wav, times)[: len(keys) + 1]
@@ -101,7 +101,7 @@ def _run_connect(
     sleep: Callable[[float], None],
     clock: Callable[[], float],
     listen: Listen,
-    same_meaning: Callable[[str, str], bool],
+    same_meaning: Callable[[str, str], bool | None],
     download: Callable[[str, str, str], bytes] = _download,
     on_done: Callable[[], None] | None = None,
 ) -> None:
@@ -218,7 +218,7 @@ def start_connect(
     client=None,
     sleep: Callable[[float], None] = time.sleep,
     listen: Listen | None = None,
-    same_meaning: Callable[[str, str], bool] | None = None,
+    same_meaning: Callable[[str, str], bool | None] | None = None,
     on_done: Callable[[], None] | None = None,
 ) -> int:
     row = conn.execute("SELECT number FROM companies WHERE id = ?", (company_id,)).fetchone()
