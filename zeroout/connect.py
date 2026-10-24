@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import sqlite3
 import threading
@@ -7,7 +8,7 @@ from typing import Callable
 
 from .budget import can_spend
 from .config import Settings
-from .db import get_node, now, start_run
+from .db import LOCK, get_node, now, start_run
 from .models import Observation, Step
 from .paths import build_path, is_toll_free, press_times
 from .probe import FAILED, _download, steps_twiml
@@ -19,6 +20,12 @@ ANSWER_TIMEOUT = 120
 USER_TIMEOUT = 90
 RECORDING_TIMEOUT = 60
 LEAD_SECONDS = 2
+CALL_TIME_LIMIT = 1800
+STOP_ATTEMPTS = 3
+# Both legs keep running after the user joins and we cannot see when they end,
+# so every connect is charged this many extra minutes. Deliberately a
+# conservative over-estimate so the daily cap stays safe.
+RESERVE_MINUTES = 30
 Listen = Callable[[bytes], Observation | None]
 
 
@@ -47,21 +54,38 @@ def ingest_connect_recording(
         if obs is None:
             results.append("unparsed")
             continue
-        d = os.path.join(settings.audio_dir, str(company_id))
-        os.makedirs(d, exist_ok=True)
-        file = os.path.join(d, f"{run_id}-connect-{prefix or 'root'}.wav")
-        with open(file, "wb") as f:
-            f.write(clip)
+        file = ""
+        if obs.outcome not in ("human", "voicemail"):  # never keep audio of real people
+            d = os.path.join(settings.audio_dir, str(company_id))
+            os.makedirs(d, exist_ok=True)
+            file = os.path.join(d, f"{run_id}-connect-{prefix or 'root'}.wav")
+            with open(file, "wb") as f:
+                f.write(clip)
         results.append(merge(conn, company_id, prefix, obs, run_id, file, same_meaning))
     return results
 
 
-def _save_run(conn: sqlite3.Connection, run_id: int, minutes: float, settings: Settings) -> None:
-    conn.execute(
-        "UPDATE runs SET calls = 2, minutes = ?, cost_usd = ?, ended_at = ? WHERE id = ?",
-        (minutes, minutes * settings.rate_per_min, now(), run_id),
-    )
-    conn.commit()
+def _save_run(
+    conn: sqlite3.Connection, run_id: int, minutes: float, settings: Settings, final: bool = True
+) -> None:
+    with LOCK:
+        conn.execute(
+            "UPDATE runs SET calls = 2, minutes = ?, cost_usd = ?, ended_at = ? WHERE id = ?",
+            (minutes, minutes * settings.rate_per_min, now() if final else None, run_id),
+        )
+        conn.commit()
+
+
+def _stop_recording(client, company_sid: str, rec_sid: str, sleep: Callable[[float], None]) -> bool:
+    for attempt in range(STOP_ATTEMPTS):
+        try:
+            client.calls(company_sid).recordings(rec_sid).update(status="stopped")
+            return True
+        except Exception:
+            log.warning("recording stop attempt %d failed", attempt + 1)
+            if attempt < STOP_ATTEMPTS - 1:
+                sleep(1)
+    return False
 
 
 def _run_connect(
@@ -82,6 +106,8 @@ def _run_connect(
     on_done: Callable[[], None] | None = None,
 ) -> None:
     started = clock()
+    rec_sid = user_sid = None
+    stopped = clean = False
     try:
         answered = None
         while clock() - started < ANSWER_TIMEOUT:
@@ -94,15 +120,17 @@ def _run_connect(
             sleep(1)
         if answered is None:
             log.warning("connect %d: company call did not connect", run_id)
-            _hangup(client, company_sid)
             return
-        rec_sid = client.calls(company_sid).recordings.create().sid
+        # Company side only: inbound on the company leg is audio from the company.
+        rec_sid = client.calls(company_sid).recordings.create(recording_track="inbound").sid
+        delay = clock() - answered  # the recording starts a little after the answer
         times = press_times(steps)
         sleep(max(times[-1] + LEAD_SECONDS - (clock() - answered), 0) if times else 0)
 
         user_sid = client.calls.create(
             to=user_e164,
             from_=settings.twilio_from,
+            time_limit=CALL_TIME_LIMIT,
             twiml=(
                 '<Response><Say>Connecting you now.</Say><Dial>'
                 f'<Conference beep="false" endConferenceOnExit="true">zo-{run_id}</Conference>'
@@ -119,10 +147,9 @@ def _run_connect(
             if status in FAILED or status == "completed":
                 break
             sleep(1)
-        client.calls(company_sid).recordings(rec_sid).update(status="stopped")
+        stopped = _stop_recording(client, company_sid, rec_sid, sleep)
         if not joined:
-            _hangup(client, company_sid)
-            _hangup(client, user_sid)
+            return
 
         url = (
             f"https://api.twilio.com/2010-04-01/Accounts/{settings.twilio_sid}"
@@ -139,17 +166,39 @@ def _run_connect(
                 sleep(3)
                 waited += 3
         if wav:
-            ingest_connect_recording(
-                conn, settings, company_id, path, wav, times, run_id, listen, same_meaning
-            )
+            try:
+                client.recordings(rec_sid).delete()
+            except Exception:
+                log.warning("connect %d: could not delete recording", run_id)
+            try:
+                ingest_connect_recording(
+                    conn, settings, company_id, path, wav,
+                    [max(t - delay, 0) for t in times], run_id, listen, same_meaning,
+                )
+            except Exception as e:
+                log.error("connect %d ingest failed: %s", run_id, type(e).__name__)
         else:
             log.warning("connect %d: recording missing", run_id)
-        _save_run(conn, run_id, (clock() - started) / 60, settings)
+        clean = stopped
     except Exception as e:
         log.error("connect %d failed: %s", run_id, type(e).__name__)
     finally:
-        if on_done:
-            on_done()
+        try:
+            if rec_sid and not stopped:
+                stopped = _stop_recording(client, company_sid, rec_sid, sleep)
+            if not stopped and rec_sid:
+                clean = False
+            if not clean:
+                _hangup(client, company_sid)
+                if user_sid:
+                    _hangup(client, user_sid)
+            minutes = math.ceil(max(clock() - started, 0) / 60) + RESERVE_MINUTES
+            _save_run(conn, run_id, minutes, settings)
+        except Exception as e:
+            log.error("connect %d cleanup failed: %s", run_id, type(e).__name__)
+        finally:
+            if on_done:
+                on_done()
 
 
 def _hangup(client, sid: str) -> None:
@@ -191,9 +240,12 @@ def start_connect(
 
     steps = build_path(conn, company_id, path, settings.key_margin)
     run_id = start_run(conn, company_id, "connect", "connect")
+    # Provisional charge so concurrent connects see this spend; replaced when the run ends.
+    _save_run(conn, run_id, RESERVE_MINUTES, settings, final=False)
     call = client.calls.create(
         to=row["number"],
         from_=settings.twilio_from,
+        time_limit=CALL_TIME_LIMIT,
         twiml=(
             f"<Response>{steps_twiml(steps)}<Dial>"
             '<Conference startConferenceOnEnter="true" endConferenceOnExit="true" '
