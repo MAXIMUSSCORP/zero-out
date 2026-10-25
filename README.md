@@ -16,6 +16,8 @@ zeroout run
 
 `zeroout run` serves on http://127.0.0.1:8000 only and opens the browser with a private link for this launch. Other websites and other users on the computer cannot use it without that link. Use `--port` or `--no-browser` (it then prints the link) to change that.
 
+Once the app is running, Settings (top right) changes the Token Factory key, the models, Twilio and your own number (including checking it), the speech model, the daily spend cap and the community repo, with no restart. Downloading a speech model stays in `zeroout setup`.
+
 - `zeroout setup` asks for a Nebius Token Factory API key and checks it live. Re-running it keeps the existing values, so press Enter to keep one.
 - Settings go in a per-user file that only you can read: `~/.config/zeroout/zeroout.env` on Linux, `~/Library/Application Support/zeroout/zeroout.env` on macOS, and `%APPDATA%\zeroout\zeroout.env` on Windows.
 - Data (the database, recordings and the speech model) goes in `~/.local/share/zeroout` on Linux, the same Application Support folder on macOS, and `%LOCALAPPDATA%\zeroout` on Windows. Set `ZEROOUT_HOME` to keep everything in one folder instead.
@@ -71,19 +73,21 @@ Nano and Super go through one OpenAI-compatible client (`zeroout/llm.py` → `ch
 
 ```
 zeroout/
-  paths.py       number normalisation (vanity letters → digits), toll-free check, key timing
-  probe.py       Twilio call: pauses + DTMF, record, download
-  hear.py        Parakeet speech recognition → timed words
-  listen.py      timed transcript → Nano → Observation
-  tree.py        merge rules, tree JSON
-  crawl.py       breadth-first crawl within budget
-  connect.py     Connect me: replay path in a conference, dial the verified user, stop recording on join
-  phone.py       phone in hand: take a clip, merge it, say what to press next
-  community.py   share and import community trees
-  github.py      gh pull requests, community download
-  site_build.py  the static community site
-  ask.py         grounded Q&A
-  web.py         FastAPI + Jinja + HTMX site and JSON API
+  paths.py           number normalisation (vanity letters → digits), toll-free check, key timing
+  probe.py           Twilio call: pauses + DTMF, record, download
+  hear.py            Parakeet speech recognition → timed words
+  listen.py          timed transcript → Nano → Observation
+  tree.py            merge rules, tree JSON
+  crawl.py           breadth-first crawl within budget
+  connect.py         Connect me: replay path in a conference, dial the verified user, stop recording on join
+  phone.py           phone in hand: take a clip, merge it, say what to press next
+  community.py       share and import community trees
+  github.py          gh pull requests, community download
+  menu_text.py       menu words, one line per sentence and option
+  site_build.py      the static community site
+  ask.py             grounded Q&A
+  web.py             FastAPI + Jinja + HTMX site and JSON API
+  settings_page.py   the Settings page: keys and choices, saved and applied with no restart
 eval/            listen accuracy and coverage reports
 ```
 
