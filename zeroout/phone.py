@@ -5,7 +5,6 @@ The person sees what was heard and keeps it or not. Microphone audio is never st
 because it can capture the room.
 """
 import json
-import re
 import sqlite3
 from dataclasses import dataclass
 from typing import Callable
@@ -13,6 +12,7 @@ from typing import Callable
 from . import db, tree
 from .listen import hear_words
 from .models import Observation, Option
+from .redact import redact as _redact
 
 KEYPAD = "1234567890*#"
 NOT_IN_TREE = "That menu path is not in the tree."
@@ -21,15 +21,6 @@ UNREADABLE = "The menu was heard but could not be read. Try again."
 HOLD_QUIET = "That path plays hold music or waits without a menu."
 HANGUP_QUIET = "Nothing came through for 90 seconds, so that path seems to end the call."
 DISPUTED = "This differs from what an automatic call heard before, so the earlier version was kept."
-
-_DIGIT_WORDS = (
-    "zero|one|two|three|four|five|six|seven|eight|nine|"
-    "cero|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve"
-)
-_TOKEN = rf"(?:\d|\b(?:{_DIGIT_WORDS})\b)"
-# Four or more digits in a row, written or spoken, with spaces, dots or dashes between them.
-DIGIT_RUN = re.compile(rf"{_TOKEN}(?:[ \t.\-]*{_TOKEN}){{3,}}", re.IGNORECASE)
-EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 
 MESSAGES = {
     "human": "A person answered, so Zero-Out kept none of their words. This path is marked as reaching a person.",
@@ -129,10 +120,6 @@ def retry_step(path: str) -> Step:
 
 
 # ---------- hearing ----------
-
-def _redact(text: str) -> str:
-    return DIGIT_RUN.sub("[number]", EMAIL.sub("[email]", text))
-
 
 def _filtered(obs: Observation) -> Observation:
     """A microphone hears the room: keep a menu's wording, minus anything that looks like a number."""

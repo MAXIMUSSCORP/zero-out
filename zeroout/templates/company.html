@@ -43,6 +43,15 @@
 {% endif %}
 </section>
 
+{% if local %}
+<section>
+<h3>Share with the community</h3>
+<p class="muted">Send what you mapped here to the shared trees so nobody else has to map it again. You see the exact file first.</p>
+<form hx-post="/c/{{ company.id }}/contribute/preview" hx-target="#share" hx-swap="innerHTML"><button>Preview what would be shared</button></form>
+<div id="share" aria-live="polite"></div>
+</section>
+{% endif %}
+
 <section>
 <h3>Changes</h3>
 <ul class="plain">

@@ -100,3 +100,20 @@ def test_effective_wait_rounds_up_to_half_second():
 
 def test_press_times_use_effective_wait():
     assert press_times([Step("1", 7.7), Step("2", 3.2)]) == [8.0, 11.5]
+
+
+def test_community_prompt_seconds_are_capped_in_a_replay():
+    from zeroout import db, paths, tree
+    from zeroout.models import Observation, Option
+    conn = db.connect(":memory:")
+    cid = db.add_company(conn, "A", "+18005550001")
+    rid = db.start_run(conn, cid, "community", "c")
+    tree.ensure_root(conn, cid)
+    obs = Observation("x", [Option("1", "a")], "menu", 120.0)
+    tree.merge(conn, cid, "", obs, rid, None, lambda a, b: True, "community", origin="community")
+    step = paths.build_path(conn, cid, "1")[0]
+    assert step.wait == 20.0 + 1.5
+    conn.execute("UPDATE nodes SET source='crawl' WHERE path=''")
+    assert paths.build_path(conn, cid, "1")[0].wait == 121.5  # a crawl's own timing is trusted
+    conn.execute("UPDATE nodes SET source='community', prompt_seconds=5 WHERE path=''")
+    assert paths.build_path(conn, cid, "1")[0].wait == 6.5  # under the cap, untouched

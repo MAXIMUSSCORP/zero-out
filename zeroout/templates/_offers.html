@@ -1,0 +1,20 @@
+<div id="offers"{% if oob %} hx-swap-oob="true"{% endif %}>
+{% if offers %}
+<section>
+<h2>Offered by the community</h2>
+<p class="banner">These numbers come from other people and are not verified. Check a number against your card, statement or the company's website before you add it.</p>
+<ul class="plain">
+{% for o in offers %}
+  <li>
+    <span>{{ o.number }}</span> <span class="muted">name given by a contributor: {{ o.name }} &middot; {{ o.files }} file{{ '' if o.files == 1 else 's' }}, first seen {{ o.first_seen }}, last seen {{ o.last_seen }}</span>
+    <form method="post" action="/companies" class="inline">
+      <input name="name" value="{{ o.name }}" maxlength="100" required>
+      <input type="hidden" name="number" value="{{ o.number }}">
+      <button class="small">Add</button>
+    </form>
+  </li>
+{% endfor %}
+</ul>
+</section>
+{% endif %}
+</div>

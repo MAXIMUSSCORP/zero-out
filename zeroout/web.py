@@ -61,6 +61,14 @@ PHONE_CHECK_MSG = "Check what was heard, then keep it or discard it."
 PHONE_MOVED_ON = " Zero-Out moved on from that branch after two tries."
 PHONE_DISPUTED = " Zero-Out moved on; an automatic call can check that branch later."
 PHONE_PENDING_SECONDS = 600
+CONTRIBUTE_PER_HOUR = 10
+UPDATE_PER_HOUR = 6
+PREVIEW_SECONDS = 15 * 60
+PREVIEW_GONE_MSG = "That preview is no longer waiting. Preview again before sharing."
+PREVIEW_CHANGED_MSG = "Something new was mapped since the preview; check this version."
+COMMUNITY_BUSY_MSG = "Already mapping this company, try again when it finishes."
+SHARE_FAILED_MSG = "Something went wrong sharing that file. Nothing was marked as shared."
+UPDATE_FAILED_MSG = "Something went wrong updating from the community. Try again later."
 PHONE_TOO_BIG_MSG = "That recording is too long. Stop sooner and try again."
 CSP = (
     "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; media-src 'self'; "
@@ -237,6 +245,8 @@ def create_app(
     ask_limit, connect_limit, verify_limit = RateLimiter(20), RateLimiter(3), RateLimiter(5)
     phone_limit, crawl_limit, company_limit = RateLimiter(3), RateLimiter(3), RateLimiter(5)
     clip_limit = RateLimiter(PHONE_CLIPS_PER_HOUR)
+    share_limit, update_limit = RateLimiter(CONTRIBUTE_PER_HOUR), RateLimiter(UPDATE_PER_HOUR)
+    community = {"sharing": set(), "updating": False, "previews": {}}
     # Phone mode state lives here, keyed by (launch, company), never in the cookie.
     ph: dict = {"runs": {}, "skip": {}, "fails": {}, "pending": {}, "busy": set()}
     app.state.phone = ph
@@ -325,6 +335,9 @@ def create_app(
 
     def render(request: Request, name: str, status: int = 200, **ctx) -> HTMLResponse:
         ctx.setdefault("budget_ok", can_spend(conn, settings))
+        ctx.setdefault("local", local is not None)
+        if name == "index.html":
+            ctx.setdefault("offers", offered())
         return templates.TemplateResponse(request, name, ctx, status_code=status)
 
     def error_page(request: Request, msg: str, status: int) -> HTMLResponse:
@@ -342,7 +355,8 @@ def create_app(
         # htmx 1.9 does not swap 4xx responses, so show these errors as 200 partials.
         path = request.url.path
         htmx = request.headers.get("hx-request") == "true" and (
-            path.startswith("/verify/") or (path.startswith("/c/") and path.endswith("/ask")))
+            path.startswith(("/verify/", "/community/"))
+            or (path.startswith("/c/") and path.endswith(("/ask", "/contribute", "/contribute/preview"))))
         return HTMLResponse(f"<p>{_esc(str(exc.detail))}</p>", status_code=200 if htmx else exc.status_code)
 
     @app.get("/expired", response_class=HTMLResponse)
@@ -615,6 +629,113 @@ def create_app(
                 "next": step_json(phone.next_step(conn, cid, path, skip=skip_set(key)))}))
         except HTTPException as e:
             return JSONResponse({"error": str(e.detail)}, status_code=e.status_code)
+
+    def offered() -> list[dict]:
+        if local is None:
+            return []
+        try:
+            from . import community as comm
+            return list(comm.list_offers(conn, limit=50))
+        except Exception:
+            log.exception("listing offers failed")
+            return []
+
+    def community_guard(cid: int | None = None) -> None:
+        if local is None:
+            raise HTTPException(404, "Not found")
+        if cid is not None:
+            company(cid)
+
+    def preview_context(cid: int, contribution, login, notice: str = "") -> dict:
+        from .github import _sources
+        doc = contribution.doc
+        number = str(doc.get("number") or contribution.relpath.split("/")[1])
+        return dict(kind="preview", cid=cid, count=len(contribution.observation_ids), login=login,
+                    repo=settings.community_repo, notice=notice, number=number,
+                    company_name=str(doc.get("name") or "Unnamed company"),
+                    sources=sorted(_sources(doc).items()),
+                    text=contribution.body.decode("utf-8", "replace"))
+
+    def keep_preview(cid: int, contribution, login) -> None:
+        with lock:
+            community["previews"][(local.launch, cid)] = (contribution, login, time.monotonic() + PREVIEW_SECONDS)
+
+    @app.post("/c/{cid}/contribute/preview", response_class=HTMLResponse)
+    def contribute_preview(request: Request, cid: int):
+        community_guard(cid)
+        same_origin(request)
+        from . import community as comm, github
+        contribution = comm.build_contribution(conn, cid)
+        if contribution is None:
+            return render(request, "_community.html", kind="nothing")
+        login = github.github_login()
+        keep_preview(cid, contribution, login)
+        return render(request, "_community.html", **preview_context(cid, contribution, login))
+
+    @app.post("/c/{cid}/contribute", response_class=HTMLResponse)
+    def contribute(request: Request, cid: int):
+        community_guard(cid)
+        same_origin(request)
+        limited(share_limit, request)
+        key = (local.launch, cid)
+        with lock:
+            if cid in app.state.running or cid in ph["busy"] or cid in community["sharing"]:
+                raise HTTPException(409, COMMUNITY_BUSY_MSG)
+            entry = community["previews"].pop(key, None)
+            if entry is None or entry[2] < time.monotonic():
+                raise HTTPException(409, PREVIEW_GONE_MSG)
+            community["sharing"].add(cid)
+        try:
+            from . import community as comm, github, home
+            shown, login, _ = entry
+            now = comm.build_contribution(conn, cid)
+            if now is None:
+                return render(request, "_community.html", kind="nothing")
+            if sorted(now.observation_ids) != sorted(shown.observation_ids):
+                # Share exactly what was shown, or show the new version and ask again.
+                keep_preview(cid, now, login)
+                return render(request, "_community.html", **preview_context(cid, now, login, PREVIEW_CHANGED_MSG))
+            try:
+                sent = github.submit(shown, settings.community_repo, outbox_dir=home.data_dir() / "outbox")
+            except Exception:
+                log.exception("sharing failed")
+                return render(request, "_community.html", kind="failed", message=SHARE_FAILED_MSG)
+            if sent.url or sent.outbox or sent.partial:
+                comm.mark_contributed(conn, shown.observation_ids, datetime.now(timezone.utc).isoformat())
+            url = sent.url if sent.url and sent.url.startswith("https://github.com/") else None
+            message = sent.message
+            if sent.url is None and sent.outbox is not None:
+                message += " It is marked as shared on this computer, since the file now exists for you to send."
+            return render(request, "_community.html", kind="shared", url=url, message=message)
+        finally:
+            with lock:
+                community["sharing"].discard(cid)
+
+    @app.post("/community/update", response_class=HTMLResponse)
+    def community_update(request: Request):
+        community_guard()
+        same_origin(request)
+        limited(update_limit, request)
+        with lock:
+            if community["updating"]:
+                raise HTTPException(409, "Already updating from the community.")
+            community["updating"] = True
+        try:
+            from . import community as comm, github
+            try:
+                download = github.download_trees(settings.community_repo)
+                report = comm.import_files(conn, download.files, same_meaning=get_same(),
+                                           truncated=download.truncated)
+            except github.CommunityError as e:
+                return render(request, "_community.html", kind="failed", message=str(e))
+            except Exception:
+                log.exception("update failed")
+                return render(request, "_community.html", kind="failed", message=UPDATE_FAILED_MSG)
+            return render(request, "_community.html", kind="updated", report=report,
+                          invalid=list(report.invalid)[:10], offers=offered(), oob=True)
+        finally:
+            with lock:
+                community["updating"] = False
 
     @app.post("/c/{cid}/ask", response_class=HTMLResponse)
     def ask_route(request: Request, cid: int, question: str = Form("")):

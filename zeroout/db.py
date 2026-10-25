@@ -1,4 +1,5 @@
 import os
+import re
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -32,12 +33,22 @@ CREATE TABLE IF NOT EXISTS observations (
     raw_json TEXT NOT NULL,
     audio_url TEXT,
     result TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    uid TEXT,
+    origin TEXT NOT NULL DEFAULT 'local',
+    contributed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS offers (
+    number TEXT PRIMARY KEY,
+    name TEXT,
+    files INTEGER NOT NULL DEFAULT 0,
+    first_seen TEXT,
+    last_seen TEXT
 );
 CREATE TABLE IF NOT EXISTS runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     company_id INTEGER NOT NULL REFERENCES companies(id),
-    kind TEXT NOT NULL CHECK (kind IN ('crawl', 'connect', 'phone')),
+    kind TEXT NOT NULL CHECK (kind IN ('crawl', 'connect', 'phone', 'community')),
     contributor_handle TEXT,
     calls INTEGER NOT NULL DEFAULT 0,
     minutes REAL NOT NULL DEFAULT 0,
@@ -64,7 +75,7 @@ def connect(path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
-    _add_node_source(conn)
+    _add_columns(conn)
     _migrate_runs_kind(conn)
     return conn
 
@@ -74,16 +85,36 @@ RUNS_COLUMNS = (
 )
 
 
-def _add_node_source(conn: sqlite3.Connection) -> None:
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(nodes)")}
-    if "source" not in cols:
-        with LOCK:
-            conn.execute("ALTER TABLE nodes ADD COLUMN source TEXT NOT NULL DEFAULT 'crawl'")
-            conn.commit()
+ADDED_COLUMNS = (
+    ("nodes", "source", "TEXT NOT NULL DEFAULT 'crawl'"),
+    ("observations", "uid", "TEXT"),
+    ("observations", "origin", "TEXT NOT NULL DEFAULT 'local'"),
+    ("observations", "contributed_at", "TEXT"),
+)
+
+
+def _add_columns(conn: sqlite3.Connection) -> None:
+    with LOCK:
+        for table, column, decl in ADDED_COLUMNS:
+            if column not in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS observations_uid ON observations(uid) WHERE uid IS NOT NULL"
+        )
+        conn.commit()
 
 
 def _orphans(conn: sqlite3.Connection) -> int:
     return len(conn.execute("PRAGMA foreign_key_check(observations)").fetchall())
+
+
+RUN_KINDS = ("crawl", "connect", "phone", "community")
+KINDS_SQL = ", ".join(f"'{k}'" for k in RUN_KINDS)
+KIND_CHECK = re.compile(r"CHECK\s*\(\s*kind\s+IN\s*\([^)]*\)\s*\)", re.IGNORECASE)
+
+
+def _has_every_kind(sql: str) -> bool:
+    return all(f"'{k}'" in sql for k in RUN_KINDS)
 
 
 def _runs_sql(conn: sqlite3.Connection) -> str | None:
@@ -92,9 +123,9 @@ def _runs_sql(conn: sqlite3.Connection) -> str | None:
 
 
 def _migrate_runs_kind(conn: sqlite3.Connection) -> None:
-    """SQLite cannot alter a CHECK, so an older runs table is rebuilt to allow kind 'phone'."""
+    """SQLite cannot alter a CHECK, so an older runs table is rebuilt to allow every kind in RUN_KINDS."""
     sql = _runs_sql(conn)
-    if sql is None or "'phone'" in sql:
+    if sql is None or _has_every_kind(sql):
         return
     with LOCK:
         conn.commit()
@@ -104,10 +135,10 @@ def _migrate_runs_kind(conn: sqlite3.Connection) -> None:
         try:
             conn.execute("BEGIN IMMEDIATE")
             sql = _runs_sql(conn)  # read again under the write lock
-            if sql is None or "'phone'" in sql:
+            if sql is None or _has_every_kind(sql):
                 conn.rollback()
                 return
-            new_sql = sql.replace("'connect')", "'connect', 'phone')")
+            new_sql = KIND_CHECK.sub(f"CHECK (kind IN ({KINDS_SQL}))", sql, count=1)
             if new_sql == sql:
                 raise RuntimeError("The runs table has a kind check this version does not recognise.")
             new_sql = new_sql.replace("runs", "runs_new", 1)

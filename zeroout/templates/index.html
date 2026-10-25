@@ -9,6 +9,14 @@
   <li class="muted">No companies yet.</li>
 {% endfor %}
 </ul>
+{% if local %}
+<section>
+<h2>Community</h2>
+<form hx-post="/community/update" hx-target="#community" hx-swap="innerHTML"><button>Update from community</button></form>
+<div id="community" aria-live="polite"></div>
+</section>
+{% with oob=False %}{% include "_offers.html" %}{% endwith %}
+{% endif %}
 <section>
 <h2>Add a company</h2>
 <form method="post" action="/companies">

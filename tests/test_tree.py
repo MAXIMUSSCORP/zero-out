@@ -495,3 +495,93 @@ def test_phone_same_keys_different_meaning_over_crawled_descendants_is_changed()
     assert status(conn, cid, "") == "changed"
     assert status(conn, cid, "2") == "stale"  # marked for a re-check, not deleted
     assert status(conn, cid, "2.1") == "human"  # human nodes are only re-checked by Connect me
+
+
+# --- source: community files protect everything the user mapped ---
+
+def mc(conn, cid, rid, path, obs, same=YES, heard_at=None):
+    return tree.merge(conn, cid, path, obs, rid, None, same, source="community",
+                      origin="community", uid=None, heard_at=heard_at)
+
+
+def test_community_cannot_rewrite_a_phone_tree():
+    """Reviewer case: a phone root with 1 and 2 and a phone child, then a community root that only offers 9."""
+    conn, cid, rid = setup()
+    mp(conn, cid, rid, "", Observation("Cards press 1, loans press 2", [Option("1", "cards"), Option("2", "loans")], "menu", 4.0))
+    mp(conn, cid, rid, "1", menu(keys=("1",)))
+    before = [tuple(r) for r in conn.execute("SELECT * FROM nodes ORDER BY path")]
+    fraud = Observation("For fraud press 9", [Option("9", "fraud")], "menu", 120.0)
+    assert mc(conn, cid, rid, "", fraud, NO) == "disputed"
+    assert [tuple(r) for r in conn.execute("SELECT * FROM nodes ORDER BY path")] == before
+    assert conn.execute("SELECT result FROM observations ORDER BY id DESC").fetchone()[0] == "disputed"
+
+
+def test_community_over_stale_user_data_is_disputed_too():
+    conn, cid, rid = setup()
+    m(conn, cid, rid, "", menu())
+    mp(conn, cid, rid, "1", menu(keys=("1",)))
+    conn.execute("UPDATE nodes SET status='stale' WHERE path IN ('', '1')")
+    assert mc(conn, cid, rid, "", menu(keys=("9",)), NO) == "disputed"
+    assert mc(conn, cid, rid, "1", menu(keys=("9",)), NO) == "disputed"
+    assert status(conn, cid, "") == "stale" and src(conn, cid, "") == "crawl" and src(conn, cid, "1") == "phone"
+
+
+def test_community_confirms_user_data_but_never_takes_the_source():
+    conn, cid, rid = setup()
+    m(conn, cid, rid, "", menu())
+    mp(conn, cid, rid, "1", menu(keys=("1",)))
+    assert mc(conn, cid, rid, "", menu(), YES) == "confirmed"
+    assert mc(conn, cid, rid, "1", menu(keys=("1",)), YES) == "confirmed"
+    assert (src(conn, cid, ""), src(conn, cid, "1")) == ("crawl", "phone")
+    assert db.get_node(conn, cid, "")["confirmations"] == 2
+    assert mc(conn, cid, rid, "", menu(), (lambda a, b: None)) == "disputed"
+
+
+def test_community_over_community_may_change_and_phone_and_crawl_win_over_it():
+    conn, cid, rid = setup()
+    mc(conn, cid, rid, "", menu())
+    assert mc(conn, cid, rid, "", menu(keys=("1", "3")), NO) == "changed"
+    assert src(conn, cid, "") == "community"
+    assert mp(conn, cid, rid, "", menu(keys=("1", "4")), NO) == "changed"
+    assert src(conn, cid, "") == "phone"
+    mc2 = mc(conn, cid, rid, "", menu(keys=("1", "5")), NO)
+    assert mc2 == "disputed"
+    assert m(conn, cid, rid, "", menu(keys=("1", "6")), NO) == "changed"
+    assert src(conn, cid, "") == "crawl"
+
+
+def test_community_change_over_phone_descendants_is_disputed():
+    conn, cid, rid = setup()
+    mc(conn, cid, rid, "", menu())
+    mp(conn, cid, rid, "2", menu(keys=("1",)))
+    assert mc(conn, cid, rid, "", menu(keys=("1", "3")), NO) == "disputed"
+    assert status(conn, cid, "2") == "mapped" and src(conn, cid, "2") == "phone"
+    assert db.get_node(conn, cid, "3") is None
+
+
+def test_community_undecided_keeps_no_row_so_it_is_tried_again():
+    conn, cid, rid = setup()
+    mc(conn, cid, rid, "", menu(), heard_at="2026-10-01")
+    before = n_obs(conn, cid)
+    assert mc(conn, cid, rid, "", menu(), lambda a, b: None, heard_at="2026-10-02") == "undecided"
+    assert n_obs(conn, cid) == before
+    assert mp(conn, cid, rid, "", menu(), lambda a, b: None) == "undecided"  # others keep theirs
+    assert n_obs(conn, cid) == before + 1
+
+
+def test_older_community_observation_may_confirm_but_never_change():
+    conn, cid, rid = setup()
+    mc(conn, cid, rid, "", menu(), heard_at="2026-10-10")
+    assert mc(conn, cid, rid, "", menu(keys=("1", "3")), NO, heard_at="2026-10-01") == "disputed"
+    assert db.get_node(conn, cid, "")["options_json"].count("opt2") == 1
+    assert mc(conn, cid, rid, "", menu(), YES, heard_at="2026-10-02") == "confirmed"
+    assert mc(conn, cid, rid, "", menu(keys=("1", "3")), NO, heard_at="2026-10-10") == "changed"  # equal is not older
+    assert mc(conn, cid, rid, "", menu(keys=("1", "4")), NO, heard_at="2026-10-11") == "changed"
+
+
+def test_older_is_judged_against_local_observations_too():
+    conn, cid, rid = setup()
+    mc(conn, cid, rid, "", menu(), heard_at="2026-10-01")
+    conn.execute("INSERT INTO observations (company_id, path, raw_json, created_at, origin) "
+                 "VALUES (?, '', '{}', '2026-10-20T10:00:00+00:00', 'local')", (cid,))
+    assert mc(conn, cid, rid, "", menu(keys=("7",)), NO, heard_at="2026-10-15") == "disputed"

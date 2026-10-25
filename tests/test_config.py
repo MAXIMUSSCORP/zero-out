@@ -124,3 +124,18 @@ def test_zeroout_home_unset_in_real_env_is_not_taken_from_files(box, monkeypatch
     assert home.data_dir() == xdg_data / "zeroout"
     assert s.db_path == str(xdg_data / "zeroout" / "zeroout.db")
     assert "elsewhere" not in s.db_path + s.audio_dir + s.asr_model_dir + str(home.config_file())
+
+
+def test_community_repo_defaults_and_overrides(box, monkeypatch):
+    assert load_settings().community_repo == "MAXIMUSSCORP/zero-out-trees"
+    monkeypatch.setenv("COMMUNITY_REPO", "someone/their.trees_2")
+    assert load_settings().community_repo == "someone/their.trees_2"
+
+
+@pytest.mark.parametrize("bad", [
+    "nodash", "a/b/c", "../x", "a/..", "owner/na me", "owner/name;rm", "-/", "/name", "owner/", "ow ner/x",
+    "owner/name\nx", "https://github.com/a/b", "owner/.", "owner/...", "ow/.."])
+def test_bad_community_repo_is_refused(box, monkeypatch, bad):
+    monkeypatch.setenv("COMMUNITY_REPO", bad)
+    with pytest.raises(ValueError, match="COMMUNITY_REPO"):
+        load_settings()

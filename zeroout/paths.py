@@ -31,6 +31,9 @@ def _parent(path: str) -> str:
     return path.rpartition(".")[0]
 
 
+COMMUNITY_PROMPT_CAP = 20.0  # community timing is only a hint, so it cannot stretch a replay without limit
+
+
 def _num(node: sqlite3.Row | None, col: str) -> float:
     return (node[col] if node is not None else None) or 0.0
 
@@ -42,7 +45,10 @@ def build_path(conn: sqlite3.Connection, company_id: int, path: str, margin: flo
         p = ".".join(keys[: i + 1])
         parent = get_node(conn, company_id, _parent(p))
         node = get_node(conn, company_id, p)
-        steps.append(Step(key, _num(parent, "prompt_seconds") + margin + _num(node, "timing_correction")))
+        wait = _num(parent, "prompt_seconds")
+        if parent is not None and parent["source"] == "community":
+            wait = min(wait, COMMUNITY_PROMPT_CAP)
+        steps.append(Step(key, wait + margin + _num(node, "timing_correction")))
     return steps
 
 

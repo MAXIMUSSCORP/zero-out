@@ -1,12 +1,17 @@
 import json
 import sqlite3
 from dataclasses import asdict
+from datetime import datetime, timezone
 from typing import Callable
 
 from . import db
 from .models import Observation
 
 MAX_CORRECTION = 10.0
+# Sources that are not this machine's own automatic calls. They fill and confirm, never overwrite or delete.
+GUEST_SOURCES = ("phone", "community")
+# Whose data each guest source must not overwrite: a community file protects the user's crawls and phone clips.
+OWNED_BY = {"phone": ("crawl",), "community": ("crawl", "phone")}
 TERMINAL = ("human", "needs_input", "speech_menu")
 
 NANO_SYSTEM = (
@@ -67,16 +72,38 @@ def _revise_descendants(conn: sqlite3.Connection, cid: int, path: str, kept: set
             )
 
 
-def _crawled_below(conn: sqlite3.Connection, cid: int, path: str, obs: Observation, node) -> bool:
-    """True when this change would alter keys over nodes an automatic call has mapped."""
+def _protected(source: str, node) -> bool:
+    """A guest source may confirm or dispute these nodes, never change them."""
+    if node is None or source not in OWNED_BY or node["source"] not in OWNED_BY[source]:
+        return False
+    if source == "community":  # a stale node is still the user's own data
+        return node["status"] != "unexplored"
+    return node["status"] not in ("unexplored", "stale")
+
+
+def _when(text: str) -> datetime:
+    t = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+def _older_than_stored(conn: sqlite3.Connection, cid: int, path: str, heard_at: str) -> bool:
+    rows = conn.execute(
+        "SELECT created_at FROM observations WHERE company_id = ? AND path = ?", (cid, path)
+    ).fetchall()
+    return any(_when(r["created_at"]) > _when(heard_at) for r in rows)
+
+
+def _owned_below(conn: sqlite3.Connection, cid: int, path: str, obs: Observation, node, source: str) -> bool:
+    """True when this change would alter keys over nodes the user's own calls have mapped."""
     kept = {o.key for o in obs.options} if obs.outcome == "menu" else set()
     if kept == _keys(node["options_json"]):
         return False
     prefix = "" if path == "" else path + "."
     rows = conn.execute(
-        "SELECT path FROM nodes WHERE company_id = ? AND path != '' AND source = 'crawl' "
+        "SELECT path FROM nodes WHERE company_id = ? AND path != '' "
+        f"AND source IN ({', '.join('?' * len(OWNED_BY[source]))}) "
         "AND status != 'unexplored' AND substr(path, 1, ?) = ?",
-        (cid, len(prefix), prefix),
+        (cid, *OWNED_BY[source], len(prefix), prefix),
     ).fetchall()
     return bool(rows)
 
@@ -90,6 +117,10 @@ def merge(
     audio_path: str | None,
     same_meaning: Callable[[str, str], bool | None],
     source: str = "crawl",
+    *,
+    origin: str = "local",
+    uid: str | None = None,
+    heard_at: str | None = None,
 ) -> str:
     # The model call runs before the lock so a slow answer never blocks the site.
     meaning: bool | None = None
@@ -104,7 +135,8 @@ def merge(
         meaning = same_meaning(node["prompt_text"] or "", obs.prompt_text)
     with db.LOCK:
         try:
-            result = _merge_locked(conn, company_id, path, obs, run_id, audio_path, meaning, source)
+            result = _merge_locked(
+                conn, company_id, path, obs, run_id, audio_path, meaning, source, origin, uid, heard_at)
         except BaseException:
             conn.rollback()
             raise
@@ -121,10 +153,13 @@ def _merge_locked(
     audio_path: str | None,
     meaning: bool | None,
     source: str = "crawl",
+    origin: str = "local",
+    uid: str | None = None,
+    heard_at: str | None = None,
 ) -> str:
     node = db.get_node(conn, company_id, path)
     if obs.outcome == "invalid_input":
-        if source == "phone":  # a person's own wrong key says nothing about the automatic replay's timing
+        if source in GUEST_SOURCES:  # a person's own wrong key says nothing about the automatic replay's timing
             return "retry"
         if node is None:
             conn.execute(
@@ -142,18 +177,17 @@ def _merge_locked(
 
     ts = db.now()
     obs_id = conn.execute(
-        "INSERT INTO observations (company_id, path, run_id, raw_json, audio_url, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (company_id, path, run_id, json.dumps(asdict(obs)), audio_path, ts),
+        "INSERT INTO observations (company_id, path, run_id, raw_json, audio_url, created_at, origin, uid) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (company_id, path, run_id, json.dumps(asdict(obs)), audio_path, heard_at or ts, origin, uid),
     ).lastrowid
     options_json = json.dumps([asdict(o) for o in obs.options])
     status = _implied_status(obs.outcome)
     result: str
-    # A phone clip never overwrites what an automatic call heard: it can only confirm it or dispute it.
-    protected = (
-        source == "phone" and node is not None and node["source"] == "crawl"
-        and node["status"] not in ("unexplored", "stale")
-    )
+    # A phone clip or a community file never overwrites what an automatic call heard here: it can only
+    # confirm it or dispute it.
+    protected = _protected(source, node)
+    older = source == "community" and heard_at is not None and _older_than_stored(conn, company_id, path, heard_at)
     same_shape = (
         node is not None and node["outcome"] == obs.outcome
         and _keys(node["options_json"]) == {o.key for o in obs.options}
@@ -201,7 +235,9 @@ def _merge_locked(
             (ts, status, source, company_id, path),
         )
         result = "confirmed"
-    elif source == "phone" and _crawled_below(conn, company_id, path, obs, node):
+    elif source in GUEST_SOURCES and _owned_below(conn, company_id, path, obs, node, source):
+        result = "disputed"
+    elif older:  # an old file may confirm what is stored, never change it
         result = "disputed"
     else:
         conn.execute(
@@ -216,6 +252,9 @@ def _merge_locked(
         if obs.outcome == "menu":
             _add_children(conn, company_id, path, obs)
         result = "changed"
+    if source == "community" and result == "undecided":  # not final: keep no row so the next update asks again
+        conn.execute("DELETE FROM observations WHERE id = ?", (obs_id,))
+        return result
     conn.execute("UPDATE observations SET result = ? WHERE id = ?", (result, obs_id))
     return result
 

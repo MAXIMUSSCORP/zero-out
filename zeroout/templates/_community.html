@@ -1,0 +1,24 @@
+{% if kind == "nothing" %}<p class="muted">Nothing new to share for this company.</p>
+{% elif kind == "preview" %}
+{% if notice %}<p class="banner">{{ notice }}</p>{% endif %}
+<p>{{ count }} observation{{ '' if count == 1 else 's' }} from this computer {{ 'is' if count == 1 else 'are' }} ready to share.</p>
+<p><strong>{{ company_name }} ({{ number }})</strong></p>
+{% if login %}<p class="banner">This opens a public pull request on {{ repo }} as @{{ login }}. The file is public as soon as you share it, before anyone reviews it, and GitHub keeps it even if the pull request is closed.</p>
+{% else %}<p class="banner">GitHub CLI is not set up on this computer, so the file would be saved to your outbox folder and not posted. If you add it to {{ repo }} yourself, it is public as soon as you do.</p>{% endif %}
+{% if sources %}<p class="muted">Sources: {% for name, n in sources %}{{ name }} {{ n }}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+<p class="muted">This is exactly the file that will be shared. Personal data is redacted automatically; check it for names before you share.</p>
+<pre style="overflow:auto;max-height:20rem;border:1px solid var(--line);padding:.5rem">{{ text }}</pre>
+<form hx-post="/c/{{ cid }}/contribute" hx-target="#share" hx-swap="innerHTML"><button>Share</button></form>
+{% elif kind == "shared" %}
+<p>{% if url %}Opened a pull request: <a href="{{ url }}" rel="noopener">{{ url }}</a>{% else %}{{ message }}{% endif %}</p>
+{% elif kind == "updated" %}
+<p>Checked {{ report.files }} file{{ '' if report.files == 1 else 's' }}: added {{ report.observations_added }} observation{{ '' if report.observations_added == 1 else 's' }}, already had {{ report.already_had }}, skipped {{ report.invalid | length }} invalid file{{ '' if report.invalid | length == 1 else 's' }}.</p>
+{% if report.orphans %}<p class="muted">Skipped {{ report.orphans }} observation{{ '' if report.orphans == 1 else 's' }} for menu options your tree does not have.</p>{% endif %}
+{% if report.future %}<p class="muted">Skipped {{ report.future }} observation{{ '' if report.future == 1 else 's' }} dated in the future.</p>{% endif %}
+{% if report.offered %}<p class="muted">{{ report.offered }} number{{ '' if report.offered == 1 else 's' }} offered by the community; see the list below.</p>{% endif %}
+{% if report.truncated %}<p class="banner">The community repo has more files than one update reads; some were not checked.</p>{% endif %}
+{% if report.capped %}<p class="banner">Some companies have more community data than one update brings in; run Update again later.</p>{% endif %}
+{% if invalid %}<ul class="plain">{% for p in invalid %}<li class="muted">{{ p }}</li>{% endfor %}</ul>{% endif %}
+{% include "_offers.html" %}
+{% else %}<p class="error">{{ message }}</p>
+{% endif %}

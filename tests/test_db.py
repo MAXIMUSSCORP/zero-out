@@ -254,3 +254,91 @@ def test_orphan_count_is_scoped_to_observations(tmp_path):
     conn.execute("INSERT INTO observations (company_id, path, run_id, raw_json, created_at) "
                  "VALUES (1, '', 999, '{}', 'x')")
     assert db._orphans(conn) == 1
+
+
+PHONE_ERA_RUNS = """
+CREATE TABLE runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL REFERENCES companies(id),
+    kind TEXT NOT NULL CHECK (kind IN ('crawl', 'connect', 'phone')),
+    contributor_handle TEXT,
+    calls INTEGER NOT NULL DEFAULT 0,
+    minutes REAL NOT NULL DEFAULT 0,
+    cost_usd REAL NOT NULL DEFAULT 0,
+    started_at TEXT NOT NULL,
+    ended_at TEXT
+);
+"""
+
+
+def test_db_already_migrated_to_phone_is_migrated_again_for_community(tmp_path):
+    import sqlite3
+    path = str(tmp_path / "phone.db")
+    raw = sqlite3.connect(path)
+    raw.executescript(OLD_SCHEMA.replace(OLD_SCHEMA[OLD_SCHEMA.index("CREATE TABLE runs"):OLD_SCHEMA.index("CREATE TABLE observations")],
+                                         PHONE_ERA_RUNS))
+    raw.execute("INSERT INTO runs (company_id, kind, started_at) VALUES (1, 'phone', 'x')")
+    raw.commit()
+    raw.close()
+    conn = connect(path)
+    assert "'community'" in runs_sql(conn) and "'phone'" in runs_sql(conn)
+    assert [r[0] for r in conn.execute("SELECT kind FROM runs ORDER BY id")] == ["crawl", "connect", "phone"]
+    conn.execute("INSERT INTO runs (company_id, kind, started_at) VALUES (1, 'community', 'x')")
+    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    sql = runs_sql(conn)
+    conn.close()
+    assert runs_sql(connect(path)) == sql  # a second start is a no-op
+
+
+def test_observation_columns_are_added_once_and_keep_old_rows(tmp_path):
+    import sqlite3
+    path = str(tmp_path / "old.db")
+    make_old_db(path)
+    for _ in range(2):
+        conn = connect(path)
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(observations)")}
+        assert {"uid", "origin", "contributed_at"} <= cols
+        row = conn.execute("SELECT id, uid, origin, contributed_at FROM observations").fetchone()
+        assert tuple(row) == (7, None, "local", None)
+        conn.close()
+
+
+def test_fresh_observations_default_to_local_and_uid_is_unique_when_set():
+    import sqlite3
+    import pytest
+    conn = connect(":memory:")
+    cid = add_company(conn, "A", "+18005550001")
+    ins = ("INSERT INTO observations (company_id, path, raw_json, created_at, uid) VALUES (?, '', '{}', 'x', ?)")
+    conn.execute(ins, (cid, None))
+    conn.execute(ins, (cid, None))  # many rows without a uid
+    conn.execute(ins, (cid, "abc"))
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(ins, (cid, "abc"))
+    assert {r[0] for r in conn.execute("SELECT origin FROM observations")} == {"local"}
+    conn.execute("INSERT INTO runs (company_id, kind, started_at) VALUES (?, 'community', 'x')", (cid,))
+
+
+def test_unrecognised_runs_check_is_refused_not_guessed(tmp_path):
+    import sqlite3
+    import pytest
+    path = str(tmp_path / "odd.db")
+    raw = sqlite3.connect(path)
+    raw.executescript(OLD_SCHEMA.replace("CHECK (kind IN ('crawl', 'connect'))", "CHECK (length(kind) > 0)"))
+    raw.close()
+    with pytest.raises(RuntimeError, match="kind check"):
+        connect(path)
+
+
+def test_offers_table_exists_on_fresh_and_old_databases(tmp_path):
+    fresh = connect(":memory:")
+    cols = [r[1] for r in fresh.execute("PRAGMA table_info(offers)")]
+    assert cols == ["number", "name", "files", "first_seen", "last_seen"]
+    path = str(tmp_path / "old.db")
+    make_old_db(path)
+    old = connect(path)
+    assert [r[1] for r in old.execute("PRAGMA table_info(offers)")] == cols
+    old.execute("INSERT INTO offers (number, name, files) VALUES ('8885550199', 'A', 1)")
+    import sqlite3
+    import pytest
+    with pytest.raises(sqlite3.IntegrityError):
+        old.execute("INSERT INTO offers (number, name, files) VALUES ('8885550199', 'B', 1)")

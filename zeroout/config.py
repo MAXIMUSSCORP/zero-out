@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -31,6 +32,15 @@ class Settings:
     key_margin: float = 1.5
     cookie_secure: bool = True
     asr_model_dir: str = "models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
+    community_repo: str = "MAXIMUSSCORP/zero-out-trees"
+
+
+REPO_RE = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+")
+
+
+def valid_repo(repo: str) -> bool:
+    """owner/name, with no name made only of dots (GitHub reads those as paths, not repos)."""
+    return bool(REPO_RE.fullmatch(repo)) and not repo.split("/")[1].strip(".") == ""
 
 
 def env_files() -> list[Path]:
@@ -56,6 +66,9 @@ def load_settings() -> Settings:
                 return value
         return default
 
+    repo = env("COMMUNITY_REPO", "MAXIMUSSCORP/zero-out-trees").strip()
+    if not valid_repo(repo) or ".." in repo:
+        raise ValueError(f"COMMUNITY_REPO must look like owner/name, for example MAXIMUSSCORP/zero-out-trees. Got {repo!r}.")
     return Settings(
         tf_api_key=env("TF_API_KEY", ""),
         tf_base_url=env("TF_BASE_URL", ""),
@@ -75,5 +88,6 @@ def load_settings() -> Settings:
         asr_model_dir=env(
             "ASR_MODEL_DIR", str(home.models_dir() / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8")),
         owner_number=env("OWNER_NUMBER", "").strip(),
+        community_repo=repo,
         config_path=", ".join(map(str, files)) or "environment",
     )
