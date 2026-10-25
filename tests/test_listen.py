@@ -453,15 +453,15 @@ def test_transcript_without_lines():
 
 
 def test_load_settings_reads_asr_model_dir(monkeypatch):
-    monkeypatch.setattr("zeroout.config.load_dotenv", lambda: None)
     monkeypatch.setenv("ASR_MODEL_DIR", "/m/parakeet")
     assert load_settings().asr_model_dir == "/m/parakeet"
 
 
 def test_load_settings_asr_model_dir_default(monkeypatch):
-    monkeypatch.setattr("zeroout.config.load_dotenv", lambda: None)
     monkeypatch.delenv("ASR_MODEL_DIR", raising=False)
-    assert load_settings().asr_model_dir == "models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
+    from zeroout import home
+    assert load_settings().asr_model_dir == str(
+        home.models_dir() / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8")
 
 
 def test_listen_returns_none_when_chat_fails_or_unparsable():

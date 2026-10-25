@@ -1,7 +1,10 @@
 import hashlib
 import io
+import re
 import struct
+import tarfile
 import wave
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -270,3 +273,163 @@ def test_transcribe_uses_loaded_recognizer(model, monkeypatch):
     words = transcribe(make_wav(pcm16(1, 2, 3)), str(model))
     assert words == [Word("press", 1.0, 1.5), Word("1.", 1.5, 1.9)]
     assert rec.decoded
+
+
+def make_archive(path, extra=None, name=NAME):
+    with tarfile.open(path, "w:bz2") as tar:
+        for rel, data in {**{f"{name}/{f}": d for f, d in FILES.items()}, f"{name}/test_wavs/en.wav": b"RIFF"}.items():
+            info = tarfile.TarInfo(rel)
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+        for rel, data in (extra or {}).items():
+            info = tarfile.TarInfo(rel)
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+
+
+@pytest.fixture
+def archive(model, tmp_path, monkeypatch):
+    src = tmp_path / "src.tar.bz2"
+    make_archive(src)
+    monkeypatch.setitem(hear.ARCHIVES, NAME, (hashlib.sha256(src.read_bytes()).hexdigest(), src.stat().st_size))
+    return src
+
+
+def copy_fetch(src, urls=None):
+    def fetch(url, path, progress):
+        if urls is not None:
+            urls.append(url)
+        path.write_bytes(src.read_bytes())
+    return fetch
+
+
+def test_install_happy_path(archive, tmp_path):
+    root, urls = tmp_path / "models", []
+    out = hear.install(NAME, root, fetch=copy_fetch(archive, urls))
+    assert out == root / NAME
+    assert urls == [f"https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/{NAME}.tar.bz2"]
+    assert (out / "tokens.txt").read_bytes() == FILES["tokens.txt"]
+    assert not (out / "test_wavs").exists()
+    assert [p.name for p in root.iterdir()] == [NAME]
+
+
+def test_install_unknown_name_raises(tmp_path):
+    with pytest.raises(RuntimeError, match="sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"):
+        hear.install("nope", tmp_path, fetch=lambda *a: None)
+
+
+def test_install_archive_hash_mismatch_removes_file(archive, tmp_path, monkeypatch):
+    monkeypatch.setitem(hear.ARCHIVES, NAME, ("0" * 64, 1))
+    with pytest.raises(RuntimeError, match="pinned hash"):
+        hear.install(NAME, tmp_path / "m", fetch=copy_fetch(archive))
+    assert list((tmp_path / "m").iterdir()) == []
+
+
+def test_install_file_mismatch_after_unpack_raises(archive, tmp_path, monkeypatch):
+    monkeypatch.setitem(hear.MODELS, NAME, {**hear.MODELS[NAME], "tokens.txt": "0" * 64})
+    with pytest.raises(RuntimeError, match="tokens.txt.*pinned hash"):
+        hear.install(NAME, tmp_path / "m", fetch=copy_fetch(archive))
+    assert list((tmp_path / "m").iterdir()) == []
+
+
+def test_install_refuses_path_traversal(model, tmp_path, monkeypatch):
+    src = tmp_path / "evil.tar.bz2"
+    make_archive(src, extra={"../escape.txt": b"x"})
+    monkeypatch.setitem(hear.ARCHIVES, NAME, (hashlib.sha256(src.read_bytes()).hexdigest(), src.stat().st_size))
+    root = tmp_path / "root" / "models"
+    with pytest.raises(RuntimeError, match="unpack"):
+        hear.install(NAME, root, fetch=copy_fetch(src))
+    assert not (tmp_path / "root" / "escape.txt").exists()
+    assert list(root.iterdir()) == []
+
+
+def test_install_fetch_error_removes_temp(archive, tmp_path):
+    def boom(url, path, progress):
+        path.write_bytes(b"partial")
+        raise OSError("network down")
+
+    with pytest.raises(OSError):
+        hear.install(NAME, tmp_path / "m", fetch=boom)
+    assert list((tmp_path / "m").iterdir()) == []
+
+
+class FakeResponse(io.BytesIO):
+    def __init__(self, data, length):
+        super().__init__(data)
+        self.headers = {"Content-Length": str(length)}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        pass
+
+
+def test_default_fetch_streams_and_reports_progress(archive, tmp_path, monkeypatch):
+    data = archive.read_bytes()
+    monkeypatch.setattr(hear.urllib.request, "urlopen", lambda url, timeout: FakeResponse(data, len(data)))
+    seen = []
+    hear.install(NAME, tmp_path / "m", progress=lambda d, t: seen.append((d, t)))
+    assert seen and seen[-1] == (len(data), len(data))
+
+
+def test_default_fetch_refuses_oversized_download(archive, tmp_path, monkeypatch):
+    size = hear.ARCHIVES[NAME][1]
+    big = b"x" * (size + 1)
+    monkeypatch.setattr(hear.urllib.request, "urlopen", lambda url, timeout: FakeResponse(big, size))
+    with pytest.raises(RuntimeError, match="larger than expected"):
+        hear.install(NAME, tmp_path / "m")
+    assert list((tmp_path / "m").iterdir()) == []
+
+
+def test_default_fetch_refuses_oversized_content_length(archive, tmp_path, monkeypatch):
+    size = hear.ARCHIVES[NAME][1]
+    monkeypatch.setattr(hear.urllib.request, "urlopen", lambda url, timeout: FakeResponse(b"x", size * 2))
+    with pytest.raises(RuntimeError, match="larger than expected"):
+        hear.install(NAME, tmp_path / "m")
+
+
+def test_install_replaces_existing_folder(archive, tmp_path):
+    root = tmp_path / "m"
+    (root / NAME).mkdir(parents=True)
+    (root / NAME / "old.txt").write_text("stale")
+    out = hear.install(NAME, root, fetch=copy_fetch(archive))
+    assert not (out / "old.txt").exists() and (out / "tokens.txt").exists()
+    assert [p.name for p in root.iterdir()] == [NAME]
+
+
+def test_failed_install_keeps_existing_folder(archive, tmp_path, monkeypatch):
+    root = tmp_path / "m"
+    (root / NAME).mkdir(parents=True)
+    (root / NAME / "old.txt").write_text("keep")
+    monkeypatch.setitem(hear.MODELS, NAME, {**hear.MODELS[NAME], "tokens.txt": "0" * 64})
+    with pytest.raises(RuntimeError):
+        hear.install(NAME, root, fetch=copy_fetch(archive))
+    assert (root / NAME / "old.txt").read_text() == "keep"
+    assert [p.name for p in root.iterdir()] == [NAME]
+
+
+def test_install_sweeps_stale_temp_files(archive, tmp_path):
+    root = tmp_path / "m"
+    (root / ".zeroout-unpack-abc").mkdir(parents=True)
+    (root / ".zeroout-unpack-abc" / "x").write_text("x")
+    (root / ".zeroout-download-abc.tar.bz2").write_bytes(b"x")
+    (root / "keepme.txt").write_text("mine")
+    hear.install(NAME, root, fetch=copy_fetch(archive))
+    assert {p.name for p in root.iterdir()} == {"keepme.txt", NAME}
+
+
+def test_install_archive_without_model_folder_raises(model, tmp_path, monkeypatch):
+    src = tmp_path / "wrong.tar.bz2"
+    make_archive(src, name="other-folder")
+    monkeypatch.setitem(hear.ARCHIVES, NAME, (hashlib.sha256(src.read_bytes()).hexdigest(), src.stat().st_size))
+    with pytest.raises(RuntimeError, match=NAME):
+        hear.install(NAME, tmp_path / "m", fetch=copy_fetch(src))
+    assert list((tmp_path / "m").iterdir()) == []
+
+
+def test_dockerfile_pins_match_archives():
+    text = (Path(__file__).resolve().parent.parent / "Dockerfile").read_text()
+    name = re.search(r"^ARG ASR_MODEL=(\S+)$", text, re.M).group(1)
+    digest = re.search(r"^ARG ASR_MODEL_SHA256=(\w+)$", text, re.M).group(1)
+    assert hear.ARCHIVES[name][0] == digest

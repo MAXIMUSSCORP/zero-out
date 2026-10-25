@@ -220,60 +220,6 @@ def _serve(handler):
     return srv
 
 
-def test_download_does_not_forward_auth_on_redirect():
-    seen = []
-
-    class Target(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):
-            seen.append(self.headers.get("Authorization"))
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"AUDIO")
-
-        def log_message(self, *a):
-            pass
-
-    target = _serve(Target)
-    first_auth = []
-
-    class Origin(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):
-            first_auth.append(self.headers.get("Authorization"))
-            self.send_response(302)
-            self.send_header("Location", f"http://127.0.0.1:{target.server_port}/f.wav")
-            self.end_headers()
-
-        def log_message(self, *a):
-            pass
-
-    origin = _serve(Origin)
-    try:
-        assert _download(f"http://127.0.0.1:{origin.server_port}/r.wav", "SID", "TOK") == b"AUDIO"
-    finally:
-        origin.shutdown()
-        target.shutdown()
-    assert first_auth[0].startswith("Basic ")
-    assert seen == [None]
-
-
-def test_download_follows_at_most_one_redirect():
-    class Loop(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):
-            self.send_response(302)
-            self.send_header("Location", f"http://127.0.0.1:{self.server.server_port}/again")
-            self.end_headers()
-
-        def log_message(self, *a):
-            pass
-
-    srv = _serve(Loop)
-    try:
-        with pytest.raises(OSError):
-            _download(f"http://127.0.0.1:{srv.server_port}/r.wav", "SID", "TOK")
-    finally:
-        srv.shutdown()
-
-
 def test_deep_path_polls_past_default_timeout():
     # 100 s of key waits plus the 40 s tail runs past 120 s; the poll must outlast the call's time_limit.
     c = FakeClient(["in-progress"] * 50 + ["completed"], [SimpleNamespace(sid="RE9")])
@@ -288,3 +234,124 @@ def test_poll_deadline_covers_time_limit():
     with pytest.raises(CallFailed) as e:
         twilio_probe(st(), client=c, sleep=sleeps.append)("+18005550000", [Step("1", 100.0)])
     assert e.value.seconds == sum(sleeps) >= c.created["time_limit"]
+
+
+# --- _download size cap ---
+import io as _io
+
+from zeroout import probe as probe_mod
+
+
+class _FakeBody(_io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        self.close()
+
+
+class _FakeOpener:
+    def __init__(self, bodies, redirect=None):
+        self.bodies, self.redirect, self.requests = list(bodies), redirect, []
+
+    def open(self, req, timeout=None):
+        self.requests.append(req)
+        if self.redirect and len(self.requests) == 1:
+            raise probe_mod.urllib.error.HTTPError(req.full_url, 302, "Found", {"Location": self.redirect}, None)
+        return self.bodies.pop(0)
+
+
+def _patch_opener(monkeypatch, opener):
+    monkeypatch.setattr(probe_mod.urllib.request, "build_opener", lambda *a: opener)
+
+
+def test_download_at_limit_is_accepted(monkeypatch):
+    monkeypatch.setattr(probe_mod, "MAX_RECORDING_BYTES", 10)
+    _patch_opener(monkeypatch, _FakeOpener([_FakeBody(b"x" * 10)]))
+    assert _download("http://h/r.wav", "S", "T") == b"x" * 10
+
+
+def test_download_over_limit_is_refused(monkeypatch):
+    monkeypatch.setattr(probe_mod, "MAX_RECORDING_BYTES", 10)
+    _patch_opener(monkeypatch, _FakeOpener([_FakeBody(b"x" * 11)]))
+    with pytest.raises(OSError, match="larger than"):
+        _download("http://h/r.wav", "S", "T")
+
+
+def test_redirected_download_over_limit_is_refused(monkeypatch):
+    monkeypatch.setattr(probe_mod, "MAX_RECORDING_BYTES", 10)
+    _patch_opener(monkeypatch, _FakeOpener([_FakeBody(b"x" * 11)], redirect="https://cdn/r.wav"))
+    with pytest.raises(OSError, match="larger than"):
+        _download("http://h/r.wav", "S", "T")
+
+
+def test_redirected_download_at_limit_is_accepted(monkeypatch):
+    monkeypatch.setattr(probe_mod, "MAX_RECORDING_BYTES", 10)
+    _patch_opener(monkeypatch, _FakeOpener([_FakeBody(b"x" * 10)], redirect="https://cdn/r.wav"))
+    assert _download("http://h/r.wav", "S", "T") == b"x" * 10
+
+
+def test_download_does_not_forward_auth_on_redirect(monkeypatch):
+    opener = _FakeOpener([_FakeBody(b"AUDIO")], redirect="https://cdn/f.wav")
+    _patch_opener(monkeypatch, opener)
+    assert _download("https://api/r.wav", "SID", "TOK") == b"AUDIO"
+    first, second = opener.requests
+    assert first.get_header("Authorization").startswith("Basic ")
+    assert second.get_header("Authorization") is None and second.full_url == "https://cdn/f.wav"
+
+
+@pytest.mark.parametrize("target", ["http://cdn/f.wav", "ftp://cdn/f.wav", "file:///etc/passwd"])
+def test_redirect_to_anything_but_https_is_refused(monkeypatch, target):
+    opener = _FakeOpener([_FakeBody(b"AUDIO")], redirect=target)
+    _patch_opener(monkeypatch, opener)
+    with pytest.raises(OSError, match="https"):
+        _download("https://api/r.wav", "SID", "TOK")
+    assert len(opener.requests) == 1
+
+
+def test_download_follows_at_most_one_redirect(monkeypatch):
+    class Loop(_FakeOpener):
+        def open(self, req, timeout=None):
+            self.requests.append(req)
+            raise probe_mod.urllib.error.HTTPError(req.full_url, 302, "Found", {"Location": "https://cdn/again"}, None)
+
+    opener = Loop([])
+    _patch_opener(monkeypatch, opener)
+    with pytest.raises(probe_mod.urllib.error.HTTPError):
+        _download("https://api/r.wav", "SID", "TOK")
+    assert len(opener.requests) == 2
+
+
+def test_real_redirect_is_not_followed_by_urllib():
+    # Pins _NoRedirect: if urllib followed the 302 itself, the Basic header would reach the target.
+    seen = []
+
+    class Target(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen.append(self.headers.get("Authorization"))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"AUDIO")
+
+        def log_message(self, *a):
+            pass
+
+    target = _serve(Target)
+
+    class Origin(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(302)
+            self.send_header("Location", f"http://127.0.0.1:{target.server_port}/f.wav")
+            self.end_headers()
+
+        def log_message(self, *a):
+            pass
+
+    origin = _serve(Origin)
+    try:
+        with pytest.raises(OSError, match="https"):
+            _download(f"http://127.0.0.1:{origin.server_port}/r.wav", "SID", "TOK")
+    finally:
+        origin.shutdown()
+        target.shutdown()
+    assert seen == []

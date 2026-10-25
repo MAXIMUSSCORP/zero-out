@@ -2,10 +2,15 @@ import hashlib
 import io
 import logging
 import os
+import shutil
 import sys
+import tarfile
+import tempfile
 import threading
+import urllib.request
 import wave
-from typing import Any
+from pathlib import Path
+from typing import Any, Callable
 
 import numpy as np
 
@@ -24,7 +29,24 @@ MODELS = {
         "joiner.int8.onnx": "3164c13fc2821009440d20fcb5fdc78bff28b4db2f8d0f0b329101719c0948b3",
         "tokens.txt": "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d",
     },
+    "sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8": {
+        "encoder.int8.onnx": "0f35509ddeb9b39002fb077d979a9fe74f06eb0bc4dd5c34f512f82e5111d657",
+        "decoder.int8.onnx": "f7c331c5504c2e593c76ed22b728e3f554af6c4a383dde862e719ced08b1da19",
+        "joiner.int8.onnx": "bf7dff69e9f2cdbe9943d70da358f38b361c115ba0105bae7e908e0d6ec782f6",
+        "tokens.txt": "450e56bd2f036fe5b6aa821865838cc5aa9d8b0106134ce9a9ba0664abe6cd10",
+    },
 }
+
+# (sha256, bytes) of each release archive, GitHub's own asset digests.
+ARCHIVES = {
+    "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8": (
+        "5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf", 487170055,
+    ),
+    "sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8": (
+        "f628312e9fdf8686374cb01a69425c41732529d540860311f16f37cbc32cfe9b", 108035095,
+    ),
+}
+RELEASE_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/{}.tar.bz2"
 
 # One recognizer per model dir, shared by every thread, so build and decode both hold the lock.
 _lock = threading.Lock()
@@ -132,6 +154,69 @@ def load(model_dir: str) -> Any:
             log.info("loading speech model from %s", os.path.abspath(os.path.dirname(paths[0])))
             _cache[model_dir] = _build(paths)
         return _cache[model_dir]
+
+
+def _fetch(url: str, path: Path, progress: Callable[[int, int], None] | None, expected: int) -> None:
+    limit = expected
+    too_big = RuntimeError(f"The download is larger than expected ({expected} bytes); stopping.")
+    with urllib.request.urlopen(url, timeout=60) as r, open(path, "wb") as out:
+        total = int(r.headers.get("Content-Length") or expected)
+        if total > limit:
+            raise too_big
+        done = 0
+        while chunk := r.read(1 << 20):
+            done += len(chunk)
+            if done > limit:
+                raise too_big
+            out.write(chunk)
+            if progress:
+                progress(done, total)
+
+
+def install(
+    name: str, root: Path, *, fetch: Callable | None = None, progress: Callable[[int, int], None] | None = None
+) -> Path:
+    if name not in MODELS or name not in ARCHIVES:
+        raise RuntimeError(f"Unknown speech model {name!r}. Known models: {', '.join(MODELS)}.")
+    digest, size = ARCHIVES[name]
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    for stale in [*root.glob(".zeroout-download-*"), *root.glob(".zeroout-unpack-*")]:
+        shutil.rmtree(stale, ignore_errors=True) if stale.is_dir() else stale.unlink(missing_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=root, prefix=".zeroout-download-", suffix=".tar.bz2")
+    os.close(fd)
+    tmp = Path(tmp_name)
+    work = Path(tempfile.mkdtemp(dir=root, prefix=".zeroout-unpack-"))
+    try:
+        if fetch is not None:
+            fetch(RELEASE_URL.format(name), tmp, progress)
+        else:
+            _fetch(RELEASE_URL.format(name), tmp, progress, size)
+        if _sha256(str(tmp)) != digest:
+            raise RuntimeError(f"The {name} download does not match the pinned hash; try again.")
+        try:
+            with tarfile.open(tmp, "r:bz2") as tar:
+                tar.extractall(work, filter="data")
+        except (tarfile.TarError, EOFError, OSError) as e:
+            raise RuntimeError(f"Could not unpack the {name} download: {e}.") from e
+        fresh = work / name
+        if not fresh.is_dir():
+            raise RuntimeError(f"The {name} download has no {name} folder inside.")
+        shutil.rmtree(fresh / "test_wavs", ignore_errors=True)
+        _verify(str(fresh))
+        dest, old = root / name, work / "old"
+        if dest.exists():
+            os.replace(dest, old)
+        try:
+            os.replace(fresh, dest)
+        except OSError:
+            if old.exists():
+                os.replace(old, dest)
+            raise
+    finally:
+        tmp.unlink(missing_ok=True)
+        shutil.rmtree(work, ignore_errors=True)
+    return root / name
 
 
 def _run(recognizer: Any, audio: np.ndarray, rate: int) -> list[Word]:

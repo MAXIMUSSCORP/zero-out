@@ -24,7 +24,9 @@
 
 <section>
 <h3>Connect me</h3>
-{% if verified %}<p class="muted">Phone verified. Use a Connect me button in the menu above.</p>
+{% if owner %}<p class="muted">We call you at {{ owner }}, then dial the company and press the keys.</p>
+{% elif needs_twilio %}<p class="muted">Connect me needs Twilio. Run zeroout setup to add it.</p>
+{% elif verified %}<p class="muted">Phone verified. Use a Connect me button in the menu above.</p>
 {% else %}
 <p class="muted">We call you, then dial the company and press the keys. Verify your phone first.</p>
 <form hx-post="/verify/start" hx-target="#verify-msg">

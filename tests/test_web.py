@@ -1,3 +1,4 @@
+import dataclasses
 import re
 import sqlite3
 from datetime import datetime, timezone
@@ -69,8 +70,8 @@ def env(tmp_path):
     e.menu = FakeMenu(fake_tree())
     e.verify, e.connect = FakeVerify(), FakeConnect()
     e.answer = {"path": "2", "explanation": "Press 2 for an agent"}
-    e.build = lambda st=None: web.create_app(
-        st or e.st, e.conn, probe=e.menu.probe, listen=e.menu.listen, same=YES,
+    e.build = lambda st=None, **kw: web.create_app(
+        st or e.st, e.conn, **kw, probe=e.menu.probe, listen=e.menu.listen, same=YES,
         chat=lambda s, m, msgs: e.answer, connect=e.connect, verify=e.verify,
     )
     e.app = e.build()
@@ -365,7 +366,6 @@ def test_session_cookie_flags(env):
 
 def test_cookie_secure_setting_from_env(monkeypatch):
     from zeroout.config import load_settings
-    monkeypatch.setattr("zeroout.config.load_dotenv", lambda: None)
     monkeypatch.delenv("COOKIE_SECURE", raising=False)
     assert load_settings().cookie_secure is True
     for v, want in (("0", False), ("false", False), ("1", True)):
@@ -638,3 +638,189 @@ def test_cross_origin_post_rejected_on_crawl_ask_and_companies(env):
 def test_same_origin_crawl_still_allowed(env):
     r = env.client.post(f"/c/{env.cid}/crawl", headers={"Origin": "http://testserver"}, follow_redirects=False)
     assert r.status_code == 303
+
+
+def test_owner_mode_connects_without_session_phone(env):
+    c = opened(env)
+    r = c.post(f"/c/{env.cid}/connect", data={"path": "2.1"}, headers={"Origin": LOCAL})
+    assert r.status_code == 200
+    assert env.connect.calls == [(env.cid, "2.1", "+14155550100")]
+
+
+def test_owner_mode_verify_routes_404(env):
+    c = opened(env)
+    for url, data in (("/verify/start", {"phone": "4155550100"}),
+                      ("/verify/check", {"phone": "4155550100", "code": "123456"})):
+        assert c.post(url, data=data, headers={"Origin": LOCAL}).status_code == 404
+    assert not env.verify.started and not env.verify.checked
+
+
+def test_owner_mode_page_shows_number_and_hides_forms(env):
+    t = opened(env).get(f"/c/{env.cid}").text
+    assert "We call you at +1 (415) 555-0100, then dial the company and press the keys." in t
+    assert "/verify/start" not in t and "/verify/check" not in t
+
+
+def test_owner_mode_still_refuses_foreign_origin(env):
+    c = opened(env)
+    assert c.post(f"/c/{env.cid}/connect", data={"path": "2"}, headers=EVIL).status_code == 403
+    assert not env.connect.calls
+
+
+def test_hosted_app_refuses_owner_number(env):
+    st = dataclasses.replace(env.st, owner_number="+14155550100")
+    with pytest.raises(RuntimeError, match="OWNER_NUMBER is only for zeroout run on your own computer"):
+        env.build(st)
+
+
+def test_verify_mode_page_keeps_forms(env, tmp_path):
+    st = settings(tmp_path)
+    st.twilio_verify_sid = "VA1"
+    t = TestClient(env.build(st)).get(f"/c/{env.cid}").text
+    assert "/verify/start" in t and "We call you at" not in t
+
+
+def test_page_without_twilio_points_to_setup(env):
+    t = env.client.get(f"/c/{env.cid}").text
+    assert "Connect me needs Twilio. Run zeroout setup to add it." in t
+    assert "/verify/start" not in t
+
+
+def twilio_error(code):
+    from twilio.base.exceptions import TwilioRestException
+    return TwilioRestException(400, "/Calls", "boom", code)
+
+
+def test_unverified_caller_id_is_a_plain_400(env):
+    env.st = dataclasses.replace(env.st, twilio_from="+14155550100")
+    env.connect.exc = twilio_error(21210)
+    c = opened(env)
+    r = c.post(f"/c/{env.cid}/connect", data={"path": "2"}, headers={"Origin": LOCAL})
+    assert r.status_code == 400
+    assert "Twilio refused the caller ID: +14155550100 is not a verified caller ID yet." in r.text
+    env.connect.exc = None
+    assert c.post(f"/c/{env.cid}/connect", data={"path": "2"}, headers={"Origin": LOCAL}).status_code == 200
+
+
+def test_other_twilio_error_is_502_without_trace(env):
+    env.connect.exc = twilio_error(20003)
+    r = opened(env).post(f"/c/{env.cid}/connect", data={"path": "2"}, headers={"Origin": LOCAL})
+    assert r.status_code == 502 and "Twilio could not place the call" in r.text
+    assert "Traceback" not in r.text and "20003" not in r.text
+
+
+# ---------- local guard (zeroout run) ----------
+
+TOKEN = "tok" * 12
+PORT = 8000
+LOCAL = f"http://127.0.0.1:{PORT}"
+
+
+def local_app(env, token=TOKEN, owner=True):
+    st = dataclasses.replace(env.st, owner_number="+14155550100" if owner else "")
+    return env.build(st, local=web.LocalGuard(PORT, token))
+
+
+def local_client(env, **kw):
+    return TestClient(local_app(env, **kw), base_url=LOCAL)
+
+
+def opened(env):
+    c = local_client(env)
+    assert c.get(f"/start?t={TOKEN}", follow_redirects=False).status_code == 303
+    return c
+
+
+def test_guard_blocks_requests_without_launch_session(env):
+    c = local_client(env)
+    for path in ("/", f"/c/{env.cid}", f"/api/companies/{env.cid}/tree"):
+        r = c.get(path)
+        assert r.status_code == 403 and "Open Zero-Out from the link that zeroout run printed." in r.text
+
+
+def test_guard_bad_token_refused_and_good_token_opens(env):
+    c = local_client(env)
+    assert c.get("/start?t=nope").status_code == 403
+    assert c.get("/start").status_code == 403
+    assert c.get("/").status_code == 403
+    r = c.get(f"/start?t={TOKEN}", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/"
+    assert c.get("/").status_code == 200 and c.get(f"/c/{env.cid}").status_code == 200
+    assert "max-age=43200" in r.headers["set-cookie"].lower()
+
+
+def test_guard_cookie_from_previous_launch_fails(env):
+    old = opened(env)
+    new = TestClient(local_app(env, token="other" * 10), base_url=LOCAL)
+    new.cookies.update(old.cookies)
+    assert new.get("/").status_code == 403
+
+
+def test_guard_static_is_open(env):
+    r = local_client(env).get("/static/missing.css")
+    assert r.status_code == 404  # reached the static handler, not the guard
+
+
+def test_guard_post_needs_exact_origin(env):
+    c = opened(env)
+    url = f"/c/{env.cid}/connect"
+    assert c.post(url, data={"path": "2"}).status_code == 403
+    for bad in ("http://127.0.0.1:9999", "http://evil.example", "https://127.0.0.1:8000", "null"):
+        assert c.post(url, data={"path": "2"}, headers={"Origin": bad}).status_code == 403
+    assert not env.connect.calls
+    assert c.post(url, data={"path": "2"}, headers={"Origin": LOCAL}).status_code == 200
+    env.connect.on_done()
+    host = f"http://localhost:{PORT}"  # a browser at localhost sends a matching Host and Origin
+    lc = TestClient(c.app, base_url=host)
+    lc.get(f"/start?t={TOKEN}")
+    assert lc.post(url, data={"path": "2"}, headers={"Origin": host}).status_code == 200
+    assert len(env.connect.calls) == 2
+
+
+def test_guard_refuses_dns_rebinding_before_any_effect(env):
+    c = opened(env)
+    rebound = TestClient(c.app, base_url=f"http://attacker.example:{PORT}")
+    rebound.cookies.update(c.cookies)
+    hdr = {"Origin": f"http://attacker.example:{PORT}"}
+    before = env.conn.execute("SELECT COUNT(*) FROM companies").fetchone()[0]
+    for url, data in (
+        (f"/c/{env.cid}/connect", {"path": "2"}), (f"/c/{env.cid}/crawl", {}),
+        ("/companies", {"name": "Evil", "number": "+18005551111"}),
+    ):
+        assert rebound.post(url, data=data, headers=hdr).status_code == 400
+    assert rebound.get("/").status_code == 400
+    assert not env.connect.calls
+    assert env.conn.execute("SELECT COUNT(*) FROM companies").fetchone()[0] == before
+
+
+def test_hosted_mode_has_no_start_route(env):
+    assert env.client.get("/start?t=x").status_code == 404
+
+
+def test_format_owner():
+    assert web.format_owner("+14155550100") == "+1 (415) 555-0100"
+    assert web.format_owner("+442071838750") == "+442071838750"
+
+
+def test_guard_htmx_403_redirects_to_expired_page(env):
+    c = local_client(env)
+    r = c.post(f"/c/{env.cid}/ask", data={"question": "x"}, headers={**HX, "Origin": LOCAL})
+    assert r.status_code == 403 and r.headers["HX-Redirect"] == "/expired"
+    assert "HX-Redirect" not in c.get("/").headers
+
+
+def test_expired_page_is_open_to_all(env):
+    r = local_client(env).get("/expired")
+    assert r.status_code == 200
+    assert "This Zero-Out session has ended. Open it again from the link that zeroout run printed" in r.text
+    assert env.client.get("/expired").status_code == 404  # hosted mode
+
+
+def test_guard_port_80_accepts_origin_without_port(env):
+    app = env.build(dataclasses.replace(env.st, owner_number="+14155550100"),
+                    local=web.LocalGuard(80, TOKEN))
+    c = TestClient(app, base_url="http://127.0.0.1")
+    c.get(f"/start?t={TOKEN}")
+    url = f"/c/{env.cid}/connect"
+    assert c.post(url, data={"path": "2"}, headers={"Origin": "http://127.0.0.1"}).status_code == 200
+    assert c.post(url, data={"path": "2"}, headers={"Origin": "http://127.0.0.1:8000"}).status_code == 403

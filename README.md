@@ -4,6 +4,35 @@ A public, community-maintained map of US toll-free phone menus (IVRs). Browse a 
 
 Built for the NVIDIA x Nebius Global AI Hackathon (Best Apps & Agents). Every model is an NVIDIA open model. Nemotron runs on **Nebius Token Factory**; speech recognition runs locally with NVIDIA **Parakeet**, because no Token Factory model takes audio.
 
+## Quick start
+
+Zero-Out runs on your own computer. It needs Python 3.11.4 or newer. Install it with one of these:
+
+```bash
+pipx install git+https://github.com/<owner>/zero-out    # or: uv tool install git+https://github.com/<owner>/zero-out
+zeroout setup
+zeroout run
+```
+
+`zeroout run` serves on http://127.0.0.1:8000 only and opens the browser with a private link for this launch. Other websites and other users on the computer cannot use it without that link. Use `--port` or `--no-browser` (it then prints the link) to change that.
+
+- `zeroout setup` asks for a Nebius Token Factory API key and checks it live. Re-running it keeps the existing values, so press Enter to keep one.
+- Settings go in a per-user file that only you can read: `~/.config/zeroout/zeroout.env` on Linux, `~/Library/Application Support/zeroout/zeroout.env` on macOS, and `%APPDATA%\zeroout\zeroout.env` on Windows.
+- Data (the database, recordings and the speech model) goes in `~/.local/share/zeroout` on Linux, the same Application Support folder on macOS, and `%LOCALAPPDATA%\zeroout` on Windows. Set `ZEROOUT_HOME` to keep everything in one folder instead.
+- `zeroout setup` downloads the speech model, and you choose one of two. Parakeet v3 is about 470 MB, covers 25 languages including Spanish, and is recommended. Parakeet 110M is about 100 MB, English only, and less accurate. Both are checked against pinned SHA-256 hashes.
+- Twilio is optional. Without it, mapping menus with your own phone on speaker is coming soon. See [Twilio and your own number](#twilio-and-your-own-number).
+- The install from git uses the newest compatible dependencies. The Docker image installs from `requirements.lock` with every package hash checked.
+
+## Twilio and your own number
+
+Twilio is optional. You need it for automatic crawls and for Connect me.
+
+You don't buy a Twilio number. Setup verifies your own phone number as your caller ID: Twilio calls you, and you type the 6-digit code on the keypad. Connect me then calls you at that number. Twilio's Calls API accepts only a Twilio number or a verified outgoing caller ID as the From number, which is why your own verified number works.
+
+Twilio bills per minute. A trial account can only call numbers you have verified, so the account must be upgraded before Zero-Out can call companies.
+
+Without Twilio, mapping menus with your own phone on speaker is coming soon.
+
 ## How it works
 
 Every call is a *path replay*: dial, wait for each prompt, press the next key, then record about 40 s. Audio is analysed after the call, not streamed. Crawling, verification and Connect me all use that one building block.
@@ -33,7 +62,9 @@ zeroout/
 eval/         listen accuracy and coverage reports
 ```
 
-## Setup
+## Development
+
+For working on the code from a checkout. Zero-Out never reads a `.env` from the current folder on its own; point it at the checkout's file with `ZEROOUT_ENV_FILE=.env`, for example `ZEROOUT_ENV_FILE=.env zeroout run` or `ZEROOUT_ENV_FILE=.env python -m zeroout.listen clip.wav`. Real environment variables come first, then that file, then your per-user settings.
 
 ```bash
 python -m venv .venv && . .venv/bin/activate
@@ -41,12 +72,12 @@ pip install -e '.[dev]'
 cp .env.example .env    # fill in Token Factory and Twilio credentials and the model IDs
 python -c "import tarfile, urllib.request; p, _ = urllib.request.urlretrieve('https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2'); tarfile.open(p, 'r:bz2').extractall('models', filter='data')"   # Parakeet, ~470 MB download
 pytest                  # runs fully offline against a fake phone menu
-uvicorn zeroout.web:app --reload
+ZEROOUT_ENV_FILE=.env zeroout run
 ```
 
-Crawl one company from the CLI (this places real calls and costs cents): `python -m zeroout.crawl --company-id 1 --max-calls 3`.
+Crawl one company from the CLI (this places real calls and costs cents): `ZEROOUT_ENV_FILE=.env zeroout crawl --company-id 1 --max-calls 3`.
 
-Smoke-test listening on a clip: `python -m zeroout.listen path/to/prompt.wav` prints the timed transcript Nano read, then the observation. `python -m zeroout.hear path/to/prompt.wav` prints the words alone.
+Smoke-test listening on a clip: `ZEROOUT_ENV_FILE=.env python -m zeroout.listen path/to/prompt.wav` prints the timed transcript Nano read, then the observation. `ZEROOUT_ENV_FILE=.env python -m zeroout.hear path/to/prompt.wav` prints the words alone.
 
 Docker: `docker build -t zero-out . && docker run -p 8000:8000 --env-file .env -v zeroout-data:/app/data zero-out`.
 
@@ -59,9 +90,11 @@ Deploy notes:
 
 ## Evaluation
 
-- `python -m eval.listen_eval` scores `listen` against hand-labelled prompts in `eval/labels.json`, reporting key-to-label accuracy and outcome accuracy.
-- `python -m eval.report` prints, per company, mapped nodes, crawl cost, minutes and confirmation rate (the share of mapped nodes confirmed at least twice).
+- `ZEROOUT_ENV_FILE=.env python -m eval.listen_eval` scores `listen` against hand-labelled prompts in `eval/labels.json`, reporting key-to-label accuracy and outcome accuracy.
+- `ZEROOUT_ENV_FILE=.env python -m eval.report` prints, per company, mapped nodes, crawl cost, minutes and confirmation rate (the share of mapped nodes confirmed at least twice).
 - `eval/time_saved.csv` logs seconds to reach a hold queue manually vs. with Connect me.
+
+From a checkout, prefix `ZEROOUT_ENV_FILE=.env` so the scripts use the checkout's settings.
 
 Results: these get filled in after the live crawl of the seed companies.
 

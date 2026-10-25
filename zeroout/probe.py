@@ -19,6 +19,7 @@ RECORDING_TIMEOUT = 30
 FAILED = {"busy", "failed", "no-answer", "canceled"}
 TAIL_SECONDS = 40
 HANGUP_SLACK = 30
+MAX_RECORDING_BYTES = 64 * 1024 * 1024
 
 
 @dataclass
@@ -56,23 +57,30 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def _read_capped(r) -> bytes:
+    data = r.read(MAX_RECORDING_BYTES + 1)
+    if len(data) > MAX_RECORDING_BYTES:
+        raise OSError(f"recording is larger than {MAX_RECORDING_BYTES // (1024 * 1024)} MB")
+    return data
+
+
 def _download(url: str, sid: str, token: str) -> bytes:
     opener = urllib.request.build_opener(_NoRedirect)
     auth = base64.b64encode(f"{sid}:{token}".encode()).decode()
     req = urllib.request.Request(url, headers={"Authorization": f"Basic {auth}"})
     try:
         with opener.open(req, timeout=60) as r:
-            return r.read()
+            return _read_capped(r)
     except urllib.error.HTTPError as e:
         loc = e.headers.get("Location") if e.code in (301, 302, 303, 307, 308) else None
         if not loc:
             raise
     target = urllib.parse.urljoin(url, loc)
-    if urllib.parse.urlparse(target).scheme not in ("http", "https"):
-        raise OSError("refusing redirect to non-http URL")
+    if urllib.parse.urlparse(target).scheme != "https":
+        raise OSError("refusing redirect to a URL that is not https")
     # Followed once, without credentials, so the token never leaves the original host.
     with opener.open(urllib.request.Request(target), timeout=60) as r:
-        return r.read()
+        return _read_capped(r)
 
 
 def twilio_probe(

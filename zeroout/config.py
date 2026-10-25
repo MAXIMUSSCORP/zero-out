@@ -1,7 +1,10 @@
 import os
+from pathlib import Path
 from dataclasses import dataclass
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
+
+from . import home
 
 
 @dataclass
@@ -19,15 +22,40 @@ class Settings:
     rate_per_min: float = 0.014
     db_path: str = "data/zeroout.db"
     audio_dir: str = "data/audio"
+    # The user's own phone number (E.164), verified with Twilio as a caller ID.
+    # When set, this person is the only caller and no SMS verification runs.
+    owner_number: str = ""
+    # The config file that was loaded, so `zeroout run` can say where settings came from.
+    config_path: str = ""
     # Seconds added after a parent prompt before pressing the next key.
     key_margin: float = 1.5
     cookie_secure: bool = True
     asr_model_dir: str = "models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
 
 
+def env_files() -> list[Path]:
+    """Files that exist, in priority order. A dev file counts only when the real environment names it."""
+    named = os.environ.get("ZEROOUT_ENV_FILE", "").strip()
+    candidates = ([Path(named)] if named else []) + [home.config_file()]
+    return [p for p in candidates if p.is_file()]
+
+
 def load_settings() -> Settings:
-    load_dotenv()
-    env = os.environ.get
+    """Real environment first, then ZEROOUT_ENV_FILE, then the per-user file.
+
+    A key comes from the first source where it is set and not blank. Nothing is written
+    to os.environ and nothing is read from the working directory.
+    """
+    files = env_files()
+    sources = [os.environ] + [dotenv_values(p, interpolate=False) for p in files]
+
+    def env(key: str, default: str = "") -> str:
+        for src in sources:
+            value = src.get(key)
+            if value is not None and value.strip():
+                return value
+        return default
+
     return Settings(
         tf_api_key=env("TF_API_KEY", ""),
         tf_base_url=env("TF_BASE_URL", ""),
@@ -40,9 +68,12 @@ def load_settings() -> Settings:
         daily_cap_usd=float(env("DAILY_CAP_USD", "0")),
         session_secret=env("SESSION_SECRET", ""),
         rate_per_min=float(env("RATE_PER_MIN", "0.014")),
-        db_path=env("DB_PATH", "data/zeroout.db"),
-        audio_dir=env("AUDIO_DIR", "data/audio"),
+        db_path=env("DB_PATH", str(home.data_dir() / "zeroout.db")),
+        audio_dir=env("AUDIO_DIR", str(home.data_dir() / "audio")),
         key_margin=float(env("KEY_MARGIN", "1.5")),
         cookie_secure=env("COOKIE_SECURE", "1").strip().lower() not in ("0", "false"),
-        asr_model_dir=env("ASR_MODEL_DIR", "models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"),
+        asr_model_dir=env(
+            "ASR_MODEL_DIR", str(home.models_dir() / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8")),
+        owner_number=env("OWNER_NUMBER", "").strip(),
+        config_path=", ".join(map(str, files)) or "environment",
     )

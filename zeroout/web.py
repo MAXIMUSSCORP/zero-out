@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import json
 import logging
 import re
@@ -5,6 +7,7 @@ import sqlite3
 import threading
 import time
 from collections import deque
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -14,7 +17,10 @@ from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from twilio.base.exceptions import TwilioRestException
 
 from . import db
 from .ask import MAX_QUESTION, ask as ask_question
@@ -111,6 +117,37 @@ def _outcome(raw_json: str | None) -> str | None:
     return data.get("outcome") if isinstance(data, dict) else None
 
 
+@dataclass(frozen=True)
+class LocalGuard:
+    """Extra checks for `zeroout run`: this app is for the one person at the keyboard."""
+    port: int
+    token: str
+
+    @property
+    def launch(self) -> str:
+        return hashlib.sha256(self.token.encode()).hexdigest()
+
+    @property
+    def origins(self) -> frozenset[str]:
+        # Browsers leave :80 out of the Origin header.
+        ports = ("", f":{self.port}") if self.port == 80 else (f":{self.port}",)
+        return frozenset(f"http://{h}{p}" for h in LOCAL_HOSTS for p in ports)
+
+
+LOCAL_HOSTS = ("127.0.0.1", "localhost")
+LOCAL_MAX_AGE = 12 * HOUR
+LOCKED_MSG = "Open Zero-Out from the link that zeroout run printed."
+EXPIRED_MSG = (
+    "This Zero-Out session has ended. Open it again from the link that zeroout run printed, "
+    "or restart zeroout run.")
+
+
+def format_owner(e164: str) -> str:
+    if re.fullmatch(r"\+1\d{10}", e164):
+        return f"+1 ({e164[2:5]}) {e164[5:8]}-{e164[8:]}"
+    return e164
+
+
 def _annotate(conn, cid: int, node: dict) -> None:
     latest = {}
     with db.LOCK:
@@ -131,18 +168,40 @@ def _annotate(conn, cid: int, node: dict) -> None:
 
 def create_app(
     settings: Settings, conn=None, probe=None, listen=None, same=None, chat=None,
-    connect=None, verify=None,
+    connect=None, verify=None, local: LocalGuard | None = None,
 ) -> FastAPI:
     if len(settings.session_secret or "") < MIN_SECRET or settings.session_secret == "change-me":
         raise RuntimeError(
             "SESSION_SECRET must be at least 32 characters; generate one with "
             "python -c 'import secrets;print(secrets.token_urlsafe(48))'")
+    if settings.owner_number and local is None:
+        raise RuntimeError(
+            "OWNER_NUMBER is only for zeroout run on your own computer; "
+            "remove it to run a hosted server.")
     conn = conn if conn is not None else db.connect(settings.db_path)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    if local is not None:
+        # Added before SessionMiddleware so it runs inside it and can read the session.
+        async def local_guard(request: Request, call_next):
+            path = request.url.path
+            if request.method == "POST" and request.headers.get("origin") not in local.origins:
+                return HTMLResponse("<p>Cross-site request refused</p>", status_code=403)
+            if path not in ("/start", "/expired") and not path.startswith("/static/"):
+                have = str(request.session.get("launch", ""))
+                if not hmac.compare_digest(have.encode(), local.launch.encode()):
+                    # htmx does not swap 4xx bodies, so send it to a page that explains.
+                    hdr = {"HX-Redirect": "/expired"} if request.headers.get("hx-request") else {}
+                    return HTMLResponse(f"<p>{LOCKED_MSG}</p>", status_code=403, headers=hdr)
+            return await call_next(request)
+
+        app.add_middleware(BaseHTTPMiddleware, dispatch=local_guard)
     app.add_middleware(
         SessionMiddleware, secret_key=settings.session_secret,
-        https_only=settings.cookie_secure, same_site="lax", max_age=HOUR,
+        https_only=settings.cookie_secure, same_site="lax",
+        max_age=LOCAL_MAX_AGE if local is not None else HOUR,
     )
+    if local is not None:
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(LOCAL_HOSTS))
     app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 
     @app.middleware("http")
@@ -264,6 +323,21 @@ def create_app(
             path.startswith("/verify/") or (path.startswith("/c/") and path.endswith("/ask")))
         return HTMLResponse(f"<p>{_esc(str(exc.detail))}</p>", status_code=200 if htmx else exc.status_code)
 
+    @app.get("/expired", response_class=HTMLResponse)
+    def expired():
+        if local is None:
+            raise HTTPException(404, "Not found")
+        return HTMLResponse(f"<p>{EXPIRED_MSG}</p>")
+
+    @app.get("/start")
+    def start(request: Request, t: str = ""):
+        if local is None:
+            raise HTTPException(404, "Not found")
+        if not hmac.compare_digest(t.encode(), local.token.encode()):
+            raise HTTPException(403, LOCKED_MSG)
+        request.session["launch"] = local.launch
+        return RedirectResponse("/", status_code=303)
+
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request):
         return render(request, "index.html", companies=_companies(), error=None)
@@ -280,7 +354,10 @@ def create_app(
                 "ORDER BY created_at DESC, id DESC", (cid,)).fetchall()
         return render(
             request, "company.html", company=c, tree=tree, changes=changes,
-            verified=bool(request.session.get("phone")), running=cid in app.state.running,
+            verified=bool(request.session.get("phone")),
+            owner=format_owner(settings.owner_number) if settings.owner_number else "",
+            needs_twilio=not settings.owner_number and not settings.twilio_verify_sid,
+            running=cid in app.state.running,
         )
 
     @app.post("/c/{cid}/ask", response_class=HTMLResponse)
@@ -347,6 +424,8 @@ def create_app(
 
     @app.post("/verify/start")
     def verify_start(request: Request, phone: str = Form("")):
+        if settings.owner_number:
+            raise HTTPException(404, "Not found")
         same_origin(request)
         try:
             e164 = normalize_number(phone)
@@ -365,6 +444,8 @@ def create_app(
 
     @app.post("/verify/check")
     def verify_check(request: Request, phone: str = Form(""), code: str = Form("")):
+        if settings.owner_number:
+            raise HTTPException(404, "Not found")
         same_origin(request)
         try:
             e164 = normalize_number(phone)
@@ -383,7 +464,7 @@ def create_app(
     @app.post("/c/{cid}/connect")
     def connect_route(request: Request, cid: int, path: str = Form("")):
         same_origin(request)
-        phone = request.session.get("phone")
+        phone = settings.owner_number or request.session.get("phone")
         if not phone:
             raise HTTPException(403, "Verify your phone first")
         company(cid)
@@ -401,6 +482,14 @@ def create_app(
         except ValueError as e:
             discard(cid)
             raise HTTPException(400, str(e))
+        except TwilioRestException as e:
+            discard(cid)
+            log.warning("connect refused by Twilio, code %s", e.code)
+            if e.code == 21210:
+                raise HTTPException(400, (
+                    f"Twilio refused the caller ID: {settings.twilio_from} is not a verified "
+                    "caller ID yet. Finish verifying it in the Twilio Console, then try again."))
+            raise HTTPException(502, "Twilio could not place the call, try again later")
         except Exception:
             discard(cid)
             raise
