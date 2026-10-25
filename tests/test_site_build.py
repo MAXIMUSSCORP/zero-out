@@ -58,8 +58,8 @@ def test_latest_wins_and_counts(dirs):
     r = site_build.build(trees, out, today=TODAY)
     assert r["files"] == 3 and r["companies"] == 1 and r["nodes"] == 1 and r["invalid"] == {}
     html = page(out, "8885550199")
-    assert '<li class="plain"><span class="t">Welcome.</span></li>' in html
-    assert '<li><span class="key sm">1</span><span class="t">Press 1 for billing</span></li>' in html
+    assert '<li><span class="t">Welcome.</span></li>' in html
+    assert '<li><span class="t">Press 1 for billing</span></li>' in html
     assert "heard 1" in html
     assert "changed since 2026-10-02" in html
     assert "last heard 2026-10-03" in html
@@ -154,21 +154,54 @@ def test_look_tokens_are_datums_light_and_dark():
     assert "monospace" not in css
 
 
-def test_lines_and_key_caps_on_company_page(dirs):
+def test_prompt_is_a_quiet_quote_and_key_caps_only_in_options(dirs):
     trees, out = dirs
     put(trees, "8885550199", "a", "2026-10-01", [
-        obs(text="Thanks for calling. For billing press 1, for support press 2.", keys=("1", "2")),
-        obs("2", text="Support. Press star to repeat.", keys=("*",)),
+        obs(text="Thanks for calling. For billing press 1, for support press 2.", keys=("1", "2"),
+            labels={"1": "Billing", "2": "Support"}),
+        obs("2", text="Support. Press star to repeat.", keys=("*",), labels={"*": "Repeat"}),
     ])
     site_build.build(trees, out, today=TODAY)
     html = page(out, "8885550199")
-    assert html.count('<ol class="lines">') == 2
-    assert '<li class="plain"><span class="t">Thanks for calling.</span></li>' in html
-    assert '<li><span class="key sm">1</span><span class="t">For billing press 1</span></li>' in html
-    assert '<li><span class="key sm">2</span><span class="t">for support press 2.</span></li>' in html
-    assert '<li><span class="key sm">*</span><span class="t">Press star to repeat.</span></li>' in html
+    assert html.count('<div class="said"><p class="lbl">What the menu says</p><ol class="lines">') == 2
+    assert '<li><span class="t">Thanks for calling.</span></li>' in html
+    assert '<li><span class="t">For billing press 1</span></li>' in html
+    assert '<li><span class="t">for support press 2.</span></li>' in html
+    for quote in re.findall(r'<ol class="lines">.*?</ol>', html):
+        assert "key" not in quote
+    assert '<li><span class="key sm">1</span><span class="t">Billing</span></li>' in html
+    assert '<li><span class="key sm">*</span><span class="t">Repeat</span></li>' in html
     assert '<span class="key lit">2</span>' in html
+    assert ".said{" in site_build.CSS and "border-left:2px" in site_build.CSS
     assert html.count('class="note"') == 1 and "read only" in html and "nothing on it is verified" in html
+
+
+def test_options_sort_1_to_9_then_0_then_star_pound(dirs):
+    trees, out = dirs
+    put(trees, "8885550199", "a", "2026-10-01", [
+        obs(keys=("#", "0", "*", "9", "2", "10", "1", "x"), labels={k: "L" + k for k in "#0*92101x"} | {"10": "Lten"})])
+    site_build.build(trees, out, today=TODAY)
+    html = page(out, "8885550199")
+    order = [html.index(f'<span class="key sm">{k}</span>') for k in ("1", "2", "9", "0", "*", "#", "10", "x")]
+    assert order == sorted(order)
+
+
+@pytest.mark.parametrize("field", ["outcome", "status"])
+def test_voice_menu_says_so_and_lists_no_keys(dirs, field):
+    trees, out = dirs
+    o = obs(text="Tell me what you need.", keys=("1",), outcome="menu")
+    o[field] = "speech_menu"
+    put(trees, "8885550199", "a", "2026-10-01", [o])
+    put(trees, "8885550200", "a", "2026-10-01", [obs()], name="Beta")
+    site_build.build(trees, out, today=TODAY)
+    html = page(out, "8885550199")
+    assert "Voice menu: you say what you need; there are no keys to press." in html
+    assert '<ul class="opts">' not in html and '<span class="key sm">' not in html
+    assert "Voice menu" not in page(out, "8885550200")
+    idx = (out / "index.html").read_text(encoding="utf-8")
+    row = re.search(r'<li data-search="[^"]*8885550199.*?</li>', idx).group(0)
+    assert "Voice menu, no keys" in row
+    assert "Voice menu" not in re.search(r'<li data-search="[^"]*8885550200.*?</li>', idx).group(0)
 
 
 def test_index_is_a_list_of_numbers_with_a_note(dirs):
@@ -456,4 +489,5 @@ def test_unicode_lookalike_key_words_do_not_break_the_build(dirs):
     r = site_build.build(trees, out, today=TODAY)
     assert r["companies"] == 1
     html = page(out, "8885550199")
-    assert "Press \u017fix for help." in html and '<span class="key sm">' not in html
+    assert "Press \u017fix for help." in html and '<span class="key sm">1</span>' in html
+    assert all("key" not in q for q in re.findall(r'<ol class="lines">.*?</ol>', html))

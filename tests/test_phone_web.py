@@ -127,6 +127,7 @@ def test_page_content_and_copy(env, fake):
     assert "+18005550000" in r.text and "Acme" in r.text
     assert 'src="/static/phone.js"' in r.text and "<script>" not in r.text
     assert "Nebius Token Factory" in r.text and "the audio itself is never saved" in r.text
+    assert "Heard on this computer by NVIDIA Parakeet; read by " in r.text
     assert "click Stop before you speak to them" in r.text
     assert "Skip this option" in r.text and "Keep" in r.text and "Discard" in r.text
 
@@ -516,3 +517,30 @@ def test_reloaded_page_says_branches_were_skipped(env, fake):
     t = c.get(f"/c/{env.cid}/phone").text
     assert "Every option Zero-Out could reach is mapped or was skipped. Hang up." in t
     assert "mapped as far as Zero-Out goes" not in t
+
+
+def test_page_names_the_nano_model_in_one_privacy_hint(env, fake):
+    env.st = dataclasses.replace(env.st, model_nano="some/other-model")
+    t = local_client(env).get(f"/c/{env.cid}/phone").text
+    assert "read by some/other-model on Nebius Token Factory" in t
+    assert t.count("Nebius Token Factory") == 1
+
+
+def test_page_says_the_language_model_when_none_is_set(env, fake):
+    env.st = dataclasses.replace(env.st, model_nano="")
+    t = local_client(env).get(f"/c/{env.cid}/phone").text
+    assert "read by the language model on Nebius Token Factory" in t and "read by  on" not in t
+
+
+def test_page_shows_the_friendly_name_of_a_known_model(env, fake):
+    env.st = dataclasses.replace(env.st, model_nano="nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B")
+    t = local_client(env).get(f"/c/{env.cid}/phone").text
+    assert "read by NVIDIA Nemotron 3 Nano on Nebius Token Factory" in t
+
+
+def test_heard_transcript_is_a_quote_and_options_are_rows(env, fake):
+    t = local_client(env).get(f"/c/{env.cid}/phone").text
+    assert '<div id="heard-quote" class="quote" hidden>' in t and "What the menu says" in t
+    assert '<ul id="heard-text" hidden>' in t
+    assert 'id="options-label" class="label" hidden>Options found' in t
+    assert '<ul id="options" class="list">' in t

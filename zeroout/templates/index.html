@@ -15,29 +15,35 @@
     <a class="tile" href="/c/{{ c.id }}">
       <h3>{{ c.name }}</h3>
       <span class="tel">{{ c.number }}</span>
+      {% if c.root_status == 'speech_menu' %}<span class="state warn">Voice menu, no keys</span>
+      <span class="sub">Answers with an automated voice assistant. You say what you need; there are no keys to press.</span>
+      {% else %}
       {% if c.mapped %}<span class="state on">Mapped &middot; {{ c.mapped }} option{{ '' if c.mapped == 1 else 's' }}</span>
       {% else %}<span class="state off">Not mapped yet</span>{% endif %}
+      {% if c.voice %}<span class="state warn">Some options are voice menus</span>{% endif %}
+      {% endif %}
     </a>
 {% endfor %}
-    <div class="tile add">
-      <h3>Add a company</h3>
-      <form method="post" action="/companies">
-        <div class="field">
-          <label for="add-name">Company name</label>
-          <input id="add-name" name="name" maxlength="100" required>
-        </div>
-        <div class="field">
-          <label for="add-number">Toll-free number</label>
-          <input id="add-number" name="number" inputmode="tel" required aria-describedby="add-number-hint">
-          <span class="hint" id="add-number-hint">A US toll-free number, like 1-800-555-1234</span>
-        </div>
-        <button>Add</button>
-      </form>
-    </div>
   </div>
 {% if not companies %}
-  <p class="low">No companies yet. Add the first one above.</p>
+  <p class="low">No companies yet. Add the first one below.</p>
 {% endif %}
+</section>
+
+<section aria-labelledby="add-h">
+  <div class="section-head"><h2 id="add-h">Add a company</h2></div>
+  <form method="post" action="/companies" class="form-row add">
+    <div class="field">
+      <label for="add-name">Company name</label>
+      <input id="add-name" name="name" maxlength="100" required>
+    </div>
+    <div class="field">
+      <label for="add-number">Toll-free number</label>
+      <input id="add-number" name="number" inputmode="tel" required aria-describedby="add-number-hint">
+      <span class="hint" id="add-number-hint">A US toll-free number, like 1-800-555-1234</span>
+    </div>
+    <button>Add</button>
+  </form>
 </section>
 
 {% if local %}

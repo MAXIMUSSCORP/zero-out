@@ -253,6 +253,9 @@ def create_app(
     templates = Jinja2Templates(directory=str(TEMPLATES))
     templates.env.filters["menu_lines"] = menu_lines
     templates.env.filters["when"] = when
+    templates.env.filters["by_key"] = by_key
+    templates.env.filters["model_name"] = model_name
+    templates.env.globals["model_name"] = model_name
     app.state.running = set()
     app.state.verify_daily = {"day": "", "count": 0}
     lock = threading.Lock()
@@ -355,6 +358,8 @@ def create_app(
     def render(request: Request, name: str, status: int = 200, **ctx) -> HTMLResponse:
         ctx.setdefault("budget_ok", can_spend(conn, settings))
         ctx.setdefault("local", local is not None)
+        ctx.setdefault("model_super", settings.model_super)  # read now, since Settings changes it live
+        ctx.setdefault("model_nano", settings.model_nano)
         if name == "index.html":
             ctx.setdefault("offers", offered())
             ctx.setdefault("tf_key_set", bool(settings.tf_api_key))
@@ -367,7 +372,10 @@ def create_app(
         with db.LOCK:
             return conn.execute(
                 "SELECT c.*, (SELECT COUNT(*) FROM nodes n WHERE n.company_id = c.id "
-                "AND n.status != 'unexplored') AS mapped FROM companies c ORDER BY c.name"
+                "AND n.status != 'unexplored') AS mapped, "
+                "(SELECT status FROM nodes n WHERE n.company_id = c.id AND n.path = '') AS root_status, "
+                "(SELECT COUNT(*) FROM nodes n WHERE n.company_id = c.id AND n.path != '' "
+                "AND n.status = 'speech_menu') AS voice FROM companies c ORDER BY c.name"
             ).fetchall()
 
     def message_page(request: Request, heading: str, message: str, status: int = 200,
@@ -431,7 +439,7 @@ def create_app(
             owner=format_owner(settings.owner_number) if settings.owner_number else "",
             needs_twilio=not settings.owner_number and not settings.twilio_verify_sid,
             running=cid in app.state.running, local=local is not None,
-            crawl_ready=twilio_ready(),
+            crawl_ready=twilio_ready(), voice=count_status(tree, "speech_menu") if tree else 0,
         )
 
     @app.get("/c/{cid}/phone", response_class=HTMLResponse)
@@ -1022,6 +1030,28 @@ def create_app(
         return FileResponse(f, media_type="audio/wav")
 
     return app
+
+
+KEY_ORDER = {k: i for i, k in enumerate("1234567890*#")}
+MODEL_NAMES = {
+    "nvidia/nemotron-3-super-120b-a12b": "NVIDIA Nemotron 3 Super",
+    "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B": "NVIDIA Nemotron 3 Nano",
+}
+
+
+def by_key(nodes) -> list:
+    """Options as a phone lists them: 1 to 9, then 0, then star, then pound."""
+    return sorted(nodes or [], key=lambda n: (KEY_ORDER.get(n["key"], len(KEY_ORDER)), n["key"]))
+
+
+def count_status(node: dict, status: str) -> int:
+    """How many options below the main menu have this status."""
+    return sum((c["status"] == status) + count_status(c, status) for c in node["children"])
+
+
+def model_name(model_id) -> str:
+    """A model id as a person would say it; an id it does not know is shown as it is."""
+    return MODEL_NAMES.get(model_id or "", model_id or "")
 
 
 def when(value) -> str:

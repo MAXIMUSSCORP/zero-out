@@ -124,6 +124,30 @@
     return text ? [{ text: text, key: null }] : [];
   }
 
+  // Options go 1-9, 0, *, # whatever order the model gave them.
+  var KEY_ORDER = '1234567890*#';
+  function sortOptions(options) {
+    return (options || []).slice().sort(function (a, b) {
+      var x = KEY_ORDER.indexOf(String(a.key)), y = KEY_ORDER.indexOf(String(b.key));
+      return (x < 0 ? 99 : x) - (y < 0 ? 99 : y);
+    });
+  }
+
+  // The transcript is quiet prose: one li per sentence, never a key cap.
+  function renderQuote(doc, box, lines) {
+    box.textContent = '';
+    (lines || []).forEach(function (ln) {
+      var li = doc.createElement('li');
+      li.textContent = ln.text;
+      box.appendChild(li);
+    });
+  }
+
+  // A menu that wants speech instead of keys says so in the headline, in the clip's own words.
+  function heardHeadline(outcome) {
+    return outcome === 'speech_menu' ? 'This menu wants you to speak' : '';
+  }
+
   // Fills a list with one li per line; a keyed line starts with a key cap. textContent only.
   function renderLines(doc, list, lines) {
     list.textContent = '';
@@ -140,7 +164,7 @@
         li.appendChild(sep);
       }
       var t = doc.createElement('span');
-      t.className = 'text';
+      t.className = 'label';
       t.textContent = ln.text;
       li.appendChild(t);
       list.appendChild(li);
@@ -218,7 +242,8 @@
   var api = {
     downsample: downsample, encodeWav: encodeWav, rms: rms, makeEndpointer: makeEndpointer,
     nextText: nextText, litKey: litKey, headlineText: headlineText,
-    heardLines: heardLines, renderLines: renderLines, makeController: makeController, EXPIRED_TEXT: EXPIRED_TEXT,
+    heardLines: heardLines, sortOptions: sortOptions, renderQuote: renderQuote,
+    heardHeadline: heardHeadline, renderLines: renderLines, makeController: makeController, EXPIRED_TEXT: EXPIRED_TEXT,
   };
   if (typeof window !== 'undefined') window.ZeroOutPhone = api;
   if (typeof module !== 'undefined') module.exports = api;
@@ -251,11 +276,12 @@
   function showHeard(message, text, options) {
     $('message').textContent = message || '';
     var list = $('heard-text');
-    renderLines(document, list, heardLines(text, text ? lastLines : null));
+    renderQuote(document, list, heardLines(text, text ? lastLines : null));
     list.hidden = !text;
-    renderLines(document, $('options'), (options || []).map(function (o) {
-      return { key: o.key, text: o.label };
-    }));
+    $('heard-quote').hidden = !text;
+    var found = sortOptions(options).map(function (o) { return { key: o.key, text: o.label }; });
+    renderLines(document, $('options'), found);
+    $('options-label').hidden = !found.length;
     $('heard').hidden = !(message || text || (options && options.length));
   }
 
@@ -331,6 +357,8 @@
       var q = '?path=' + encodeURIComponent(path) + '&capped=' + (rec.capped ? 1 : 0) + '&sound=' + (rec.sound ? 1 : 0);
       return post(base + '/clip' + q, wav, 'audio/wav').then(function (data) {
         lastLines = data.heard && data.heard.lines ? data.heard.lines : null;
+        var say = heardHeadline(data.heard && data.heard.outcome);
+        if (say) $('headline').textContent = say;
         return data;
       });
     },

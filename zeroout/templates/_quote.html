@@ -1,0 +1,13 @@
+{# What a menu says: a quiet quote with no key caps, then its audio. Keys belong to the option list only. #}
+{% macro quote(node) %}
+{% if node.prompt_text or node.last_confirmed or node.obs_id %}
+<div class="quote">
+  <p class="label">What the menu says</p>
+  {% if node.prompt_text %}
+  <ul>{% for line in node.prompt_text | menu_lines(node.options | map(attribute='key') | list) %}<li>{{ line.text }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if node.last_confirmed %}<p class="small">Confirmed {{ node.last_confirmed | when }}</p>{% endif %}
+  {% if node.obs_id %}<audio controls preload="none" src="/audio/{{ node.obs_id }}"></audio>{% endif %}
+</div>
+{% endif %}
+{% endmacro %}

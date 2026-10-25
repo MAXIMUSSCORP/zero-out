@@ -232,8 +232,10 @@ def test_company_page_shows_root_prompt_as_lines_and_unheard_options(env):
     env.conn.execute("UPDATE nodes SET prompt_text = 'For billing press 1. For an agent press 2.' WHERE path = ''")
     env.conn.commit()
     t = env.client.get(f"/c/{env.cid}").text
-    assert '<ol class="lines">' in t and t.count('class="key sm">2</span><span class="vh">: </span><span class="text">') >= 1
-    assert 'class="tile root"' in t
+    assert 'class="tile root"' in t and "What the menu says" in t
+    quote = re.search(r'<div class="quote">.*?</div>', t, re.S).group(0)
+    assert "For billing press 1." in quote and "key sm" not in quote and "<li>" in quote
+    assert '<ol class="lines">' not in t
 
 
 def test_index_lists_companies(env):
@@ -927,7 +929,7 @@ def test_option_rows_carry_a_hidden_separator_after_the_key(env):
     env.conn.execute("UPDATE nodes SET prompt_text = 'For billing press 1.' WHERE path = ''")
     env.conn.commit()
     t = env.client.get(f"/c/{env.cid}").text
-    assert '<span class="key sm">1</span><span class="vh">: </span><span class="text">' in t
+    assert re.search(r'<span class="key sm">1</span><span class="vh">: </span>\s*<span class="label">', t)
     env.answer = {"path": None, "explanation": "?"}
     a = env.client.post(f"/c/{env.cid}/ask", data={"question": "zzz"}).text
     assert '<span class="vh">: </span>' in a
@@ -1001,3 +1003,102 @@ def test_crawl_route_refuses_without_twilio_before_reaching_it(env):
     r = TestClient(app).post(f"/c/{env.cid}/crawl", follow_redirects=False)
     assert r.status_code == 400 and "Needs Twilio." in r.text and app.state.running == set()
     assert env.conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
+
+
+def option_keys(html):
+    return re.findall(r'<summary>\s*<span class="key sm">(.)</span>', html)
+
+
+def test_options_sort_one_to_nine_then_zero_star_pound(env):
+    mapped(env)
+    for k in ("0", "*", "#", "3"):
+        env.conn.execute("INSERT INTO nodes (company_id, path, status) VALUES (?, ?, 'mapped')", (env.cid, k))
+    env.conn.commit()
+    assert option_keys(env.client.get(f"/c/{env.cid}").text) == ["1", "2", "3", "0", "*", "#"]
+
+
+def test_nested_options_sort_the_same_way(env):
+    mapped(env)
+    for k in ("1.0", "1.#", "1.2", "1.*"):
+        env.conn.execute("INSERT INTO nodes (company_id, path, status) VALUES (?, ?, 'mapped')", (env.cid, k))
+    env.conn.commit()
+    # depth first: option 1, then its children in order, then option 2
+    assert option_keys(env.client.get(f"/c/{env.cid}").text) == ["1", "2", "0", "*", "#", "2"]
+
+
+INFO_IDS = ("info-map-phone", "info-map-auto", "info-ask", "info-menu", "info-connect", "info-share")
+
+
+def test_info_popovers_exist_with_matching_ids_and_no_script(env):
+    t = opened(env).get(f"/c/{env.cid}").text
+    for i in INFO_IDS:
+        assert f'popovertarget="{i}"' in t and f'<div popover id="{i}" class="pop">' in t, i
+    assert t.count('class="info"') == len(INFO_IDS) and 'aria-label="About Map with my phone"' in t
+    assert not re.search(r"<script(?![^>]*\bsrc=)", t) and not re.search(r"\son\w+=", t)
+    assert "NVIDIA Parakeet" in t and "audio is never saved" in t
+
+
+def test_hosted_page_has_only_the_info_popovers_for_what_it_offers(env):
+    t = env.client.get(f"/c/{env.cid}").text
+    for i in ("info-map-phone", "info-share"):
+        assert i not in t
+    for i in ("info-map-auto", "info-ask", "info-menu", "info-connect"):
+        assert f'popovertarget="{i}"' in t and f'id="{i}"' in t
+
+
+def test_model_name_maps_known_ids_and_escapes_unknown_ones():
+    assert web.model_name("nvidia/nemotron-3-super-120b-a12b") == "NVIDIA Nemotron 3 Super"
+    assert web.model_name("nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B") == "NVIDIA Nemotron 3 Nano"
+    assert web.model_name("acme/custom-1") == "acme/custom-1" and web.model_name("") == ""
+
+
+def test_answer_model_note_follows_settings_and_hides_when_unset(env):
+    env.st.model_super = "nvidia/nemotron-3-super-120b-a12b"
+    t = env.client.get(f"/c/{env.cid}").text
+    assert "Answers by NVIDIA Nemotron 3 Super on Nebius Token Factory." in t
+    env.st.model_super = "<b>x</b>"
+    t = env.client.get(f"/c/{env.cid}").text
+    assert "Answers by &lt;b&gt;x&lt;/b&gt; on Nebius" in t and "<b>x</b>" not in t
+    env.st.model_super = ""
+    assert "Answers by" not in env.client.get(f"/c/{env.cid}").text
+
+
+VOICE_SENTENCE = "Answers with an automated voice assistant. You say what you need; there are no keys to press."
+
+
+def test_voice_menu_root_is_flagged_on_the_tile_and_the_page(env):
+    mapped(env)
+    env.conn.execute("UPDATE nodes SET status = 'speech_menu' WHERE path = ''")
+    env.conn.commit()
+    home = env.client.get("/").text
+    assert "Voice menu, no keys" in home and VOICE_SENTENCE in home
+    page = env.client.get(f"/c/{env.cid}").text
+    assert '<div class="notice"' in page and VOICE_SENTENCE in page
+
+
+def test_some_voice_options_are_flagged_and_labelled_in_the_list(env):
+    mapped(env)
+    env.conn.execute("UPDATE nodes SET status = 'speech_menu' WHERE path = '2'")
+    env.conn.commit()
+    home = env.client.get("/").text
+    assert "Some options are voice menus" in home and "Voice menu, no keys" not in home
+    page = env.client.get(f"/c/{env.cid}").text
+    assert "Some options lead to a voice assistant that listens for speech instead of keys." in page
+    assert VOICE_SENTENCE not in page and '<span class="state warn">Voice menu</span>' in page
+
+
+def test_company_without_voice_menus_has_no_voice_notes(env):
+    mapped(env)
+    for t in (env.client.get("/").text, env.client.get(f"/c/{env.cid}").text):
+        assert "oice menu" not in t and "voice assistant" not in t
+
+
+def test_add_company_is_its_own_section_outside_the_tiles_grid(env):
+    t = env.client.get("/").text
+    grid = t[t.index('<div class="tiles">'):t.index('aria-labelledby="add-h"')]
+    assert 'action="/companies"' not in grid and 'tile add' not in t
+    assert 'id="add-h"' in t and 'class="form-row add"' in t and 'name="number"' in t
+
+
+def test_ask_placeholder_is_short_enough_for_a_phone(env):
+    assert 'placeholder="For example, dispute a charge"' in env.client.get(f"/c/{env.cid}").text

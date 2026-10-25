@@ -237,12 +237,37 @@ list.textContent = 'old';
 phone.renderLines(doc, list, [{ text: 'For billing press 1.', key: '1' }, { text: '<b>hi</b>', key: null }]);
 assert.equal(list.children.length, 2);
 const [keyed, plain] = list.children;
-assert.deepEqual(keyed.children.map((c) => [c.className, c.textContent]), [['key sm', '1'], ['vh', ': '], ['text', 'For billing press 1.']]);
+assert.deepEqual(keyed.children.map((c) => [c.className, c.textContent]), [['key sm', '1'], ['vh', ': '], ['label', 'For billing press 1.']]);
 assert.equal(keyed.textContent, '1: For billing press 1.');
-assert.deepEqual(plain.children.map((c) => [c.className, c.textContent]), [['text', '<b>hi</b>']]);
+assert.deepEqual(plain.children.map((c) => [c.className, c.textContent]), [['label', '<b>hi</b>']]);
 assert.ok(list.textContent.includes('For billing press 1.') && list.textContent.includes('<b>hi</b>'));
 assert.equal(list.innerHTMLSet, false);
 phone.renderLines(doc, list, []);
 assert.equal(list.children.length, 0);
+
+// the transcript is a quote: text only, no key caps, even for a keyed line
+const box = fakeEl('div');
+box.textContent = 'old';
+phone.renderQuote(doc, box, [{ text: 'For billing press 1.', key: '1' }, { text: '<b>hi</b>', key: null }]);
+assert.deepEqual(box.children.map((c) => [c.tag, c.className, c.textContent]),
+  [['li', '', 'For billing press 1.'], ['li', '', '<b>hi</b>']]);
+assert.ok(box.children.every((c) => c.children.length === 0));
+assert.ok(box.textContent.includes('For billing press 1.') && box.innerHTMLSet === false);
+phone.renderQuote(doc, box, []);
+assert.equal(box.children.length, 0);
+
+// options read 1-9, 0, *, #
+const keysOf = (o) => phone.sortOptions(o).map((x) => x.key);
+assert.deepEqual(keysOf([{ key: '#' }, { key: '0' }, { key: '*' }, { key: '9' }, { key: '1' }]), ['1', '9', '0', '*', '#']);
+assert.deepEqual(keysOf([]), []);
+assert.deepEqual(keysOf(undefined), []);
+const given = [{ key: '2' }, { key: '1' }];
+phone.sortOptions(given);
+assert.deepEqual(given.map((x) => x.key), ['2', '1']);  // the input is not reordered in place
+
+// a speech menu changes the headline; nothing else does
+assert.equal(phone.heardHeadline('speech_menu'), 'This menu wants you to speak');
+assert.equal(phone.heardHeadline('menu'), '');
+assert.equal(phone.heardHeadline(undefined), '');
 
 console.log('ok');

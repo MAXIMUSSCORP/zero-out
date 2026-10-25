@@ -1,19 +1,17 @@
+{% from "_quote.html" import quote %}
 {% set unheard = node.status == 'unexplored' %}
 {% set changed = node.status in ('stale', 'changed') %}
 <details{% if not node.path %} open{% endif %}>
   <summary>
-    {% if node.path %}<span class="key sm">{{ node.key }}</span>{% endif %}
+    {% if node.path %}<span class="key sm">{{ node.key }}</span><span class="vh">: </span>{% endif %}
     <span class="label">{{ node.label if node.label else ('Main menu' if not node.path else 'Option ' ~ node.key) }}</span>
     {% if unheard %}<span class="state off">Not mapped yet</span>
+    {% elif node.status == 'speech_menu' %}<span class="state warn">Voice menu</span>
     {% elif changed %}<span class="state warn">Changed</span>
     {% else %}<span class="state on">Mapped</span>{% endif %}
   </summary>
   <div class="body">
-    {% if node.prompt_text %}
-    <ol class="lines">{% for line in node.prompt_text | menu_lines(node.options | map(attribute='key') | list) %}<li>{% if line.key %}<span class="key sm">{{ line.key }}</span><span class="vh">: </span>{% endif %}<span class="text">{{ line.text }}</span></li>{% endfor %}</ol>
-    {% endif %}
-    {% if node.last_confirmed %}<p class="low small">Confirmed {{ node.last_confirmed | when }}</p>{% endif %}
-    {% if node.obs_id %}<audio controls preload="none" src="/audio/{{ node.obs_id }}"></audio>{% endif %}
+    {{ quote(node) }}
     {% if not unheard %}
     <form class="inline" method="post" action="/c/{{ company.id }}/connect">
       <input type="hidden" name="path" value="{{ node.path }}">
@@ -22,7 +20,7 @@
     {% endif %}
     {% if node.children %}
     <ul class="list menu">
-      {% for child in node.children %}
+      {% for child in node.children | by_key %}
       <li>{% with node=child %}{% include "_tree_node.html" %}{% endwith %}</li>
       {% endfor %}
     </ul>

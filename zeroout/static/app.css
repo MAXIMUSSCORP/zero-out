@@ -134,6 +134,8 @@ input[type="radio"],input[type="checkbox"]{width:20px;height:20px;accent-color:v
   border-radius:50%;background:var(--inv-bg);color:var(--inv-fg);font-size:12px;font-weight:700;transform:translateY(2px)}
 .form-row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
 .form-row .field{margin-bottom:0;flex:1 1 220px}
+.form-row.add{align-items:flex-start}
+.form-row.add > button{margin-top:28px}  /* level with the inputs, not the hint under them */
 
 /* The question box: one wide rounded field with its button inside the right edge. */
 .ask{position:relative;max-width:640px}
@@ -152,6 +154,8 @@ a.tile:hover{background:var(--el)}
 .tile.root{padding:20px 20px 24px}
 .tile + .list{margin-top:12px}
 .tile .state{margin-top:auto;padding-top:20px}
+.tile .state + .state{margin-top:0;padding-top:0}
+.tile .sub{font-size:14px;color:var(--text-low);max-width:30ch}
 .tile.add{background:transparent;border:1.5px dashed var(--line-strong)}
 
 .list{list-style:none;margin:0;padding:0;background:var(--surface);border-radius:16px;overflow:hidden}
@@ -170,7 +174,7 @@ a.tile:hover{background:var(--el)}
   border-right:1.5px solid var(--text-low);border-bottom:1.5px solid var(--text-low);transform:rotate(-45deg);transition:transform .2s}
 .menu details[open] > summary::after{transform:rotate(45deg)}
 .menu details > summary:hover{background:var(--el)}
-.menu .label{flex:1 1 auto;min-width:0;font-weight:500}
+.menu .label{flex:1 1 auto;min-width:0;font-weight:600}
 .menu .label::first-letter{text-transform:uppercase}
 .menu .body{padding:4px 20px 20px 66px;display:grid;gap:14px}
 .list.menu > li{display:block;padding:0;min-height:0}
@@ -193,6 +197,31 @@ a.tile:hover{background:var(--el)}
 .bar + .notice.strong,.budget{border-radius:0;margin:0;text-align:center;padding:12px var(--gutter)}
 
 .note{margin-top:96px;padding-top:24px;border-top:1px solid var(--line);color:var(--text-low);font-size:15px;line-height:1.6;max-width:62ch}
+
+/* ---------- what a menu says: a quiet quote, no key caps ---------- */
+
+.quote{display:grid;gap:8px;padding:2px 0 2px 16px;border-left:2px solid var(--line-strong)}
+.quote ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.quote li{color:var(--text-low)}
+.quote .small{color:var(--text-low)}
+.quote + form{margin-top:20px}
+.menu .body .quote + form{margin-top:6px}
+
+/* ---------- info buttons and their popovers: a floating layer, the one place with a shadow ---------- */
+
+.tip{display:inline-flex;align-items:center;gap:6px}
+.section-head .title{display:flex;align-items:center;gap:6px}
+.info{position:relative;flex:none;width:22px;height:22px;padding:0;border-radius:50%;
+  border:1.5px solid var(--text-dim);background:transparent;color:var(--text-low);
+  font-size:13px;font-weight:600;line-height:1;cursor:pointer}
+.info::before{content:"";position:absolute;inset:-11px}
+.info:hover{color:var(--text);border-color:var(--text)}
+.pop{max-width:320px;margin:auto;padding:16px 18px;border:1px solid var(--line);border-radius:14px;
+  background:var(--app);color:var(--text);font-size:15px;line-height:1.5;box-shadow:0 10px 32px rgba(0,0,0,.18)}
+
+/* The phone page's Heard panel: its parts get a steady gap, the options label sits close to its list. */
+#heard > * + *{margin-top:20px}
+#heard > #options-label + .menu{margin-top:8px}
 
 /* ---------- keys: the one loud thing ---------- */
 
@@ -250,6 +279,11 @@ audio{display:block;width:100%;max-width:360px;height:40px}
   .keypad{grid-template-columns:repeat(3,68px);gap:14px 22px}
   .keypad .key{width:68px;height:68px;font-size:28px}
   .menu .body{padding-left:16px;padding-right:12px}
+  .ask input:not([type="hidden"]){padding:0 92px 0 16px;font-size:17px}
+  .form-row.add{flex-direction:column;align-items:stretch}
+  .form-row.add .field{flex:none}
+  .form-row.add > button{margin-top:0;margin-bottom:0}
+  .pop{position:fixed;inset:auto 16px 16px 16px;margin:0;width:auto;max-width:none;padding:22px}
   .note{margin-top:72px}
 }
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}

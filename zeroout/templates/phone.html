@@ -36,7 +36,7 @@
   <button id="skip" type="button" class="btn secondary"{% if not step or not step.path %} hidden{% endif %}>Skip this option</button>
 </div>
 <p class="notice">If a person answers, click Stop before you speak to them. Zero-Out keeps none of their words.</p>
-<p class="hint">The words Zero-Out hears are sent to the language model on Nebius Token Factory to read the menu. You see them before anything is kept, and the audio itself is never saved.</p>
+<p class="hint">Heard on this computer by NVIDIA Parakeet; read by {% if model_nano %}{{ model_nano | model_name }}{% else %}the language model{% endif %} on Nebius Token Factory. You see the words before anything is kept, and the audio itself is never saved.</p>
 <p id="status" class="hint" aria-live="polite"></p>
 <div class="meter" id="meter" hidden><span></span></div>
 <div id="error" class="notice strong" role="alert" hidden></div>
@@ -44,8 +44,12 @@
 <section id="heard" hidden>
   <h2>Heard</h2>
   <p id="message" class="hint"></p>
-  <ol id="heard-text" class="lines" hidden></ol>
-  <ul id="options" class="lines"></ul>
+  <div id="heard-quote" class="quote" hidden>
+    <p class="label">What the menu says</p>
+    <ul id="heard-text" hidden></ul>
+  </div>
+  <p id="options-label" class="label" hidden>Options found</p>
+  <div class="menu"><ul id="options" class="list"></ul></div>
   <div id="review" class="actions" hidden>
     <button id="keep" type="button" class="btn primary">Keep</button>
     <button id="discard" type="button" class="btn secondary">Discard</button>

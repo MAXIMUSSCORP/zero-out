@@ -1,42 +1,55 @@
 {% extends "base.html" %}
 {% set active = 'companies' %}
 {% block title %}{{ company.name }} - Zero Out{% endblock %}
+{% from "_quote.html" import quote %}
 {% block body %}
 <a class="back" href="/">&larr; Companies</a>
 <section class="hero">
   <h1 class="display">{{ company.name }}</h1>
   <p class="lede tel">{{ company.number }}</p>
   <div class="actions">
-{% if local %}<a class="btn primary" href="/c/{{ company.id }}/phone">Map with my phone</a>{% endif %}
-    <form method="post" action="/c/{{ company.id }}/crawl" class="inline">
+{% if local %}<div class="tip"><a class="btn primary" href="/c/{{ company.id }}/phone">Map with my phone</a>
+      <button type="button" class="info" popovertarget="info-map-phone" aria-label="About Map with my phone">?</button></div>
+    <div popover id="info-map-phone" class="pop">You call the company on your own phone, on speaker. This computer listens through its microphone, NVIDIA Parakeet recognizes the speech here{% if model_nano %}, and {{ model_nano | model_name }} on Nebius Token Factory reads the menu{% else %}, and the language model on Nebius Token Factory reads the menu{% endif %}. You review what was heard before anything is kept, and the audio is never saved.</div>
+{% endif %}
+    <div class="tip"><form method="post" action="/c/{{ company.id }}/crawl" class="inline">
       <button class="btn secondary"{% if running or not crawl_ready %} disabled{% endif %}>Map automatically</button>
     </form>
+      <button type="button" class="info" popovertarget="info-map-auto" aria-label="About Map automatically">?</button></div>
+    <div popover id="info-map-auto" class="pop">Zero-Out places the calls through your Twilio account, presses each key and maps the whole menu. Twilio bills you per minute of calling, within your daily spending cap.</div>
 {% if not crawl_ready %}
     <span class="hint">Needs Twilio.{% if local %} Add it in <a href="/settings">Settings</a>.{% endif %}</span>
 {% endif %}
   </div>
 </section>
 
+{% if tree and tree.status == 'speech_menu' %}
+<div class="notice" role="status">Answers with an automated voice assistant. You say what you need; there are no keys to press.</div>
+{% elif voice %}
+<div class="notice" role="status">Some options lead to a voice assistant that listens for speech instead of keys.</div>
+{% endif %}
+
 <section aria-labelledby="ask-h">
-  <div class="section-head"><h2 id="ask-h">What do you need?</h2></div>
+  <div class="section-head"><div class="title"><h2 id="ask-h">What do you need?</h2>
+    <button type="button" class="info" popovertarget="info-ask" aria-label="About What do you need?">?</button></div>
+    <div popover id="info-ask" class="pop">Describe what you need in your own words and Zero-Out picks the keys from this company's map. It only uses keys that are on the map.</div></div>
   <form hx-post="/c/{{ company.id }}/ask" hx-target="#answer" hx-swap="innerHTML" class="ask">
-    <input name="question" placeholder="For example, I want to dispute a charge" aria-label="What do you need?" maxlength="500" required>
+    <input name="question" placeholder="For example, dispute a charge" aria-label="What do you need?" maxlength="500" required>
     <button>Ask</button>
   </form>
+  {% if model_super %}<p class="hint">Answers by {{ model_super | model_name }} on Nebius Token Factory.</p>{% endif %}
   <div id="answer" aria-live="polite"></div>
 </section>
 
 <section aria-labelledby="menu-h">
-  <div class="section-head"><h2 id="menu-h">The menu</h2></div>
+  <div class="section-head"><div class="title"><h2 id="menu-h">The menu</h2>
+    <button type="button" class="info" popovertarget="info-menu" aria-label="About The menu">?</button></div>
+    <div popover id="info-menu" class="pop">What was heard at each step, and what each key leads to, with the date it was last confirmed.</div></div>
 {% if tree %}
   {% if tree.prompt_text or tree.obs_id or tree.status != 'unexplored' %}
   <div class="tile root">
     <h3>Main menu</h3>
-    {% if tree.prompt_text %}
-    <ol class="lines">{% for line in tree.prompt_text | menu_lines(tree.options | map(attribute='key') | list) %}<li>{% if line.key %}<span class="key sm">{{ line.key }}</span><span class="vh">: </span>{% endif %}<span class="text">{{ line.text }}</span></li>{% endfor %}</ol>
-    {% endif %}
-    {% if tree.last_confirmed %}<p class="low small">Confirmed {{ tree.last_confirmed | when }}</p>{% endif %}
-    {% if tree.obs_id %}<audio controls preload="none" src="/audio/{{ tree.obs_id }}"></audio>{% endif %}
+    {{ quote(tree) }}
     {% if tree.status != 'unexplored' %}
     <form class="inline" method="post" action="/c/{{ company.id }}/connect">
       <input type="hidden" name="path" value="{{ tree.path }}">
@@ -47,7 +60,7 @@
   {% endif %}
   {% if tree.children %}
   <ul class="list menu">
-    {% for child in tree.children %}
+    {% for child in tree.children | by_key %}
     <li>{% with node=child %}{% include "_tree_node.html" %}{% endwith %}</li>
     {% endfor %}
   </ul>
@@ -58,7 +71,9 @@
 </section>
 
 <section aria-labelledby="connect-h">
-  <div class="section-head"><h2 id="connect-h">Connect me</h2></div>
+  <div class="section-head"><div class="title"><h2 id="connect-h">Connect me</h2>
+    <button type="button" class="info" popovertarget="info-connect" aria-label="About Connect me">?</button></div>
+    <div popover id="info-connect" class="pop">Zero-Out calls you, then calls the company, presses the keys and puts you through.</div></div>
 {% if owner %}<p>We call you at {{ owner }}, then dial the company and press the keys.</p>
 {% elif needs_twilio %}<p>Connect me needs Twilio. {% if local %}Add it in <a href="/settings">Settings</a>.{% else %}Run zeroout setup to add it.{% endif %}</p>
 {% elif verified %}<p>Phone verified. Use a Connect me button in the menu above.</p>
@@ -79,7 +94,9 @@
 
 {% if local %}
 <section aria-labelledby="share-h">
-  <div class="section-head"><h2 id="share-h">Share with the community</h2></div>
+  <div class="section-head"><div class="title"><h2 id="share-h">Share with the community</h2>
+    <button type="button" class="info" popovertarget="info-share" aria-label="About Share with the community">?</button></div>
+    <div popover id="info-share" class="pop">Sharing sends the menu you mapped here, with personal data redacted, to the community's shared maps. It is public, and you see the exact file before anything is sent.</div></div>
   <p>Send what you mapped here to the shared maps so nobody else has to map it again. You see the exact file first.</p>
   <form hx-post="/c/{{ company.id }}/contribute/preview" hx-target="#share" hx-swap="innerHTML"><button class="btn secondary">Preview what would be shared</button></form>
   <div id="share" aria-live="polite"></div>

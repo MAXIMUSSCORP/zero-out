@@ -90,14 +90,16 @@ details[open]>summary::before{content:"\\25BE"}
 .state{font-size:14px;color:var(--text-low)}
 .state::before{content:"\\25CF";margin-right:6px;font-size:11px;vertical-align:1px}
 .changed{font-size:14px;border-bottom:1px dotted currentColor}
-.lines{list-style:none;margin:4px 0 8px;padding:0}
-.lines li{display:flex;align-items:flex-start;gap:12px;padding:4px 0}
-.lines li.plain{padding-left:44px}
-.lines .t{padding-top:3px;max-width:620px;overflow-wrap:anywhere}
-.opts{margin:0 0 8px;padding:0 0 0 44px;list-style:none}
-.opts li{padding:2px 0;color:var(--text-low);font-size:14px;overflow-wrap:anywhere}
-.opts b{font-weight:600;color:var(--text)}
-.src{margin:0 0 12px;padding-left:44px;font-size:14px;color:var(--text-low)}
+.said{margin:4px 0 10px 0;padding-left:14px;border-left:2px solid var(--line-int);color:var(--text-low)}
+.lbl{margin:0 0 2px;font-size:12px;color:var(--text-dim)}
+.lines{list-style:none;margin:0;padding:0}
+.lines li{padding:1px 0;overflow-wrap:anywhere;max-width:620px}
+.voice{margin:0 0 10px;padding:12px 16px;border-radius:14px;background:var(--tile);font-size:14px}
+.voice-tag{flex-basis:100%}
+.opts{margin:0 0 8px;padding:0;list-style:none}
+.opts li{display:flex;align-items:center;gap:12px;padding:3px 0}
+.opts .t{overflow-wrap:anywhere}
+.src{margin:0 0 12px;font-size:14px;color:var(--text-low)}
 .note{margin:40px 0 0;padding:20px 22px;background:var(--tile);border-radius:16px;color:var(--text-low);
   font-size:14px;line-height:1.5;max-width:692px}
 @media (max-width:734px){
@@ -220,7 +222,8 @@ def _company(entries, today):
             sources[k] = sources.get(k, 0) + v
     latest = max((n["last"] for n in nodes.values()), default="")
     return {"name": name, "number": number, "top": [root] if root else [],
-            "nodes": len(nodes), "latest": latest, "sources": sources}
+            "nodes": len(nodes), "latest": latest, "sources": sources,
+            "voice": bool(root) and _voice(root["o"])}
 
 
 def _srcs(d):
@@ -235,6 +238,19 @@ def _label_for(node, parent):
         if str(opt.get("key", "")) == key:
             return _s(opt.get("label"))
     return ""
+
+
+VOICE = "Voice menu: you say what you need; there are no keys to press."
+KEY_ORDER = "1234567890*#"
+
+
+def _voice(o):
+    return "speech_menu" in (_s(o.get("outcome")), _s(o.get("status")))
+
+
+def _key_rank(key):
+    """1 to 9, then 0, then * and #; anything else after them, by text."""
+    return (KEY_ORDER.index(key), "") if len(key) == 1 and key in KEY_ORDER else (len(KEY_ORDER), key)
 
 
 def _cap(key, cls="key"):
@@ -258,18 +274,17 @@ def _node(node, parent, lines, depth=0):
     if node["changed"]:
         out.append(f' <span class="changed">changed since {esc(node["changed"])}</span>')
     out.append("</summary>")
-    shown = [str(x.get("key", "")) for x in o.get("options", [])]
-    rows = []
-    for ln in lines(_s(o.get("prompt_text")), shown):
-        if ln["key"] is None:
-            rows.append(f'<li class="plain"><span class="t">{esc(ln["text"])}</span></li>')
-        else:
-            rows.append(f'<li>{_cap(ln["key"], "key sm")}<span class="t">{esc(ln["text"])}</span></li>')
+    rows = [f'<li><span class="t">{esc(ln["text"])}</span></li>' for ln in lines(_s(o.get("prompt_text")))]
     if rows:
-        out.append('<ol class="lines">' + "".join(rows) + "</ol>")
-    opts = [f'<li><b>{esc(x.get("key", ""))}</b> {esc(_s(x.get("label")))}</li>' for x in o.get("options", [])]
-    if opts:
-        out.append('<ul class="opts">' + "".join(opts) + "</ul>")
+        out.append('<div class="said"><p class="lbl">What the menu says</p><ol class="lines">' + "".join(rows) + "</ol></div>")
+    if _voice(o):
+        out.append(f'<p class="voice">{VOICE}</p>')
+    else:
+        opts = [f'<li>{_cap(k, "key sm")}<span class="t">{esc(_s(x.get("label")))}</span></li>'
+                for k, x in sorted(((str(x.get("key", "")), x) for x in o.get("options", [])),
+                                   key=lambda kx: _key_rank(kx[0]))]
+        if opts:
+            out.append('<ul class="opts">' + "".join(opts) + "</ul>")
     out.append(f'<p class="src">Heard by: {_srcs(node["src"])}</p>')
     for k in node["kids"]:
         out.append(_node(k, node, lines, depth + 1))
@@ -302,7 +317,9 @@ def _index(companies):
             search = esc(f"{c['name']} {c['number']}".lower())
             rows.append(f'<li data-search="{search}"><a href="c/{c["number"]}.html"><span class="name">{esc(c["name"])}</span> '
                         f'<span class="meta">{esc(c["number"])} · {c["nodes"]} menus · '
-                        f'last heard {esc(c["latest"][:10] or "—")}</span></a></li>')
+                        f'last heard {esc(c["latest"][:10] or "—")}</span>'
+                        + ('<span class="meta voice-tag">Voice menu, no keys</span>' if c["voice"] else "")
+                        + '</a></li>')
         body = (hero + '\n<input id="q" type="search" placeholder="Search by company or number" autocomplete="off">\n'
                 '<ul class="list companies">\n' + "\n".join(rows) + "\n</ul>")
     return _page("Zero-Out phone menus", body)
