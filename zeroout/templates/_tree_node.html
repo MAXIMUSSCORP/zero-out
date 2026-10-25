@@ -5,7 +5,8 @@
   <summary>
     {% if node.path %}<span class="key sm">{{ node.key }}</span><span class="vh">: </span>{% endif %}
     <span class="label">{{ node.label if node.label else ('Main menu' if not node.path else 'Option ' ~ node.key) }}</span>
-    {% if unheard %}<span class="state off">Not mapped yet</span>
+    {% if node.replays %}<span class="state off">Replays a menu</span>
+    {% elif unheard %}<span class="state off">Not mapped yet</span>
     {% elif node.status == 'speech_menu' %}<span class="state warn">Voice menu</span>
     {% elif changed %}<span class="state warn">Changed</span>
     {% else %}<span class="state on">Mapped</span>{% endif %}

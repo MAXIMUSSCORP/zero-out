@@ -585,3 +585,42 @@ def test_older_is_judged_against_local_observations_too():
     conn.execute("INSERT INTO observations (company_id, path, raw_json, created_at, origin) "
                  "VALUES (?, '', '{}', '2026-10-20T10:00:00+00:00', 'local')", (cid,))
     assert mc(conn, cid, rid, "", menu(keys=("7",)), NO, heard_at="2026-10-15") == "disputed"
+
+
+def menu_with(labels: dict):
+    return Observation("press", [Option(k, v) for k, v in labels.items()], "menu", 3.0)
+
+
+def test_unexplored_skips_options_that_replay_a_menu():
+    conn, cid, rid = setup()
+    m(conn, cid, rid, "", menu_with({"1": "billing", "*": "To repeat this information", "#": "Return to the previous menu"}))
+    assert tree.unexplored(conn, cid, 4) == ["1"]
+
+
+def test_unexplored_skips_everything_under_a_replay_option():
+    conn, cid, rid = setup()
+    m(conn, cid, rid, "", menu_with({"1": "billing", "*": "repeat options"}))
+    conn.execute("INSERT INTO nodes (company_id, path, status) VALUES (?, '*.3', 'unexplored')", (cid,))
+    conn.execute("INSERT INTO nodes (company_id, path, status) VALUES (?, '1.2', 'unexplored')", (cid,))
+    assert tree.unexplored(conn, cid, 4) == ["1", "1.2"]
+
+
+def test_a_star_that_is_a_real_choice_is_still_explored():
+    conn, cid, rid = setup()
+    m(conn, cid, rid, "", menu_with({"1": "billing", "*": "Returns and exchanges"}))
+    assert tree.unexplored(conn, cid, 4) == ["*", "1"]
+
+
+def test_stale_replay_option_is_not_revisited():
+    conn, cid, rid = setup()
+    m(conn, cid, rid, "", menu_with({"*": "To repeat this information"}))
+    conn.execute("UPDATE nodes SET status = 'stale' WHERE company_id = ? AND path = '*'", (cid,))
+    assert tree.unexplored(conn, cid, 4) == []
+
+
+def test_tree_json_marks_replay_options():
+    conn, cid, rid = setup()
+    m(conn, cid, rid, "", menu_with({"1": "billing", "*": "To repeat this information"}))
+    kids = {c["key"]: c for c in tree.tree_json(conn, cid)["children"]}
+    assert kids["*"]["replays"] is True and kids["1"]["replays"] is False
+    assert tree.tree_json(conn, cid)["replays"] is False

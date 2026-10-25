@@ -170,7 +170,8 @@ def test_prompt_is_a_quiet_quote_and_key_caps_only_in_options(dirs):
     for quote in re.findall(r'<ol class="lines">.*?</ol>', html):
         assert "key" not in quote
     assert '<li><span class="key sm">1</span><span class="t">Billing</span></li>' in html
-    assert '<li><span class="key sm">*</span><span class="t">Repeat</span></li>' in html
+    assert ('<li><span class="key sm">*</span><span class="t">Repeat</span>'
+            ' <span class="state">Replays a menu</span></li>') in html
     assert '<span class="key lit">2</span>' in html
     assert ".said{" in site_build.CSS and "border-left:2px" in site_build.CSS
     assert html.count('class="note"') == 1 and "read only" in html and "nothing on it is verified" in html
@@ -491,3 +492,16 @@ def test_unicode_lookalike_key_words_do_not_break_the_build(dirs):
     html = page(out, "8885550199")
     assert "Press \u017fix for help." in html and '<span class="key sm">1</span>' in html
     assert all("key" not in q for q in re.findall(r'<ol class="lines">.*?</ol>', html))
+
+
+def test_a_replay_option_keeps_its_row_and_says_it_replays_a_menu(dirs):
+    trees, out = dirs
+    put(trees, "8885550199", "a", "2026-10-01", [
+        obs(text="For billing press 1. To repeat this information press star.", keys=("1", "*"),
+            labels={"1": "Billing", "*": "To repeat this information"})])
+    site_build.build(trees, out, today=TODAY)
+    html = page(out, "8885550199")
+    assert html.count("Replays a menu") == 1
+    assert ('<li><span class="key sm">*</span><span class="t">To repeat this information</span>'
+            ' <span class="state">Replays a menu</span></li>') in html
+    assert '<li><span class="key sm">1</span><span class="t">Billing</span></li>' in html

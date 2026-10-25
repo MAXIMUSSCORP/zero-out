@@ -359,3 +359,13 @@ def test_labels_are_redacted_on_non_menu_outcomes_too():
     out = hear(obs)
     assert out.obs.prompt_text == ""
     assert [o.label for o in out.obs.options] == ["account [number]", "mail [email]"]
+
+
+def test_next_step_never_offers_a_repeat_option():
+    conn, cid, rid = setup()
+    obs = Observation("press", [Option("*", "To repeat this information"), Option("2", "sales")], "menu", 3.0)
+    seed(conn, cid, rid, "", obs)
+    step = phone.next_step(conn, cid, "")
+    assert step.path == "2" and step.press_now == "2"
+    seed(conn, cid, rid, "2", hold())
+    assert phone.next_step(conn, cid, "2") is None

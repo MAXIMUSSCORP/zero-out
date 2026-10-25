@@ -463,3 +463,13 @@ def test_cli_passes_tail_seconds_as_expected_to_listen(tmp_path, monkeypatch):
     crawl_mod.main(["--company-id", "1"])
     seen["listen"](b"wav")
     assert listened == [{"expected": TAIL_SECONDS}]
+
+
+def test_crawl_never_calls_an_option_that_replays_a_menu(tmp_path):
+    conn, cid, st = setup(tmp_path)
+    top = Observation("press", [Option("1", "billing"), Option("*", "To repeat this information"),
+                                Option("#", "Return to the previous menu")], "menu", 4.0)
+    fm = FakeMenu({"": top, "1": Observation("please hold", [], "hold", 2.0)})
+    crawl(conn, st, cid, fm.probe, fm.listen, YES, sleep=lambda s: None)
+    assert fm.calls == ["", "1"]
+    assert status(conn, cid, "*") == "unexplored" and status(conn, cid, "#") == "unexplored"

@@ -8,6 +8,7 @@ except the 10 digit company number.
 import base64
 import hashlib
 import html
+import functools
 import importlib.util
 import json
 import re
@@ -280,7 +281,9 @@ def _node(node, parent, lines, depth=0):
     if _voice(o):
         out.append(f'<p class="voice">{VOICE}</p>')
     else:
-        opts = [f'<li>{_cap(k, "key sm")}<span class="t">{esc(_s(x.get("label")))}</span></li>'
+        replays = _replays()
+        opts = [f'<li>{_cap(k, "key sm")}<span class="t">{esc(_s(x.get("label")))}</span>'
+                f'{REPLAY_STATE if replays(_s(x.get("label"))) else ""}</li>'
                 for k, x in sorted(((str(x.get("key", "")), x) for x in o.get("options", [])),
                                    key=lambda kx: _key_rank(kx[0]))]
         if opts:
@@ -390,6 +393,21 @@ def load_check():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod.check
+
+
+REPLAY_STATE = ' <span class="state">Replays a menu</span>'
+
+
+@functools.lru_cache(maxsize=1)
+def _replays():
+    """replays_menu from the sibling menu_text.py; with no sibling, nothing is marked."""
+    path = Path(__file__).with_name("menu_text.py")
+    if not path.is_file():
+        return lambda label: False
+    spec = importlib.util.spec_from_file_location("_menu_text_replays", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.replays_menu
 
 
 def load_menu_lines():

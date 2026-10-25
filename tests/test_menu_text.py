@@ -211,3 +211,42 @@ def test_a_word_followed_by_of_is_not_a_key(s):
 def test_one_alone_is_still_a_key():
     assert keys(menu_lines("Press one for sales. Oprima uno para ventas.")) == ["1", "1"]
     assert keys(menu_lines("Press 1 of 2 times.")) == ["1"]
+
+
+REPLAYS = [
+    "Return to the previous menu", "To repeat this information", "To hear these options again",
+    "repeat options", "Repeat this menu", "hear the menu again", "Say that again", "go back",
+    "Go back to the previous menu", "return to the main menu", "Return to main", "Start over",
+    "the previous menu", "Main menu", "REPEAT THIS MESSAGE", "repetir", "Para repetir esta informacion",
+    "volver", "Volver al menú anterior", "MENÚ PRINCIPAL", "MENU ANTERIOR", "VOLVER AL MENÚ", "Para volver a escuchar",
+    "Para volver a oír el menú", "Para repetir las opciones", "Para repetir este menú", "Para repetir el menú", "PARA REPETIR EL MENÚ", "Para repetir el menu", "PARA REPETIR ESTA INFORMACIÓN", "Para repetir el mensaje", "menu principal", "menú principal", "To repeat",
+]
+NOT_REPLAYS = [
+    "Repairs", "Return a product", "Returns and exchanges", "Main street store hours", "billing questions",
+    "report a lost or stolen phone", "Pharmacy", "Repeat customers desk is closed", "", "   ",
+    "Para volver a surtir su receta", "Para volver a programar su cita", "Para volver a enviar su factura",
+    "Para repetir su pedido", "Mainframe support", "Go backstage", "Starting overtime pay",
+]
+
+
+@pytest.mark.parametrize("label", REPLAYS)
+def test_replays_menu_recognizes_navigation_by_its_label(label):
+    from zeroout.menu_text import replays_menu
+    assert replays_menu(label) is True
+
+
+@pytest.mark.parametrize("label", NOT_REPLAYS)
+def test_replays_menu_leaves_real_choices_alone(label):
+    from zeroout.menu_text import replays_menu
+    assert replays_menu(label) is False
+
+
+@pytest.mark.parametrize("bad", [None, 5, b"repeat", ["repeat"], "\ud800 repeat"])
+def test_replays_menu_never_raises(bad):
+    from zeroout.menu_text import replays_menu
+    assert replays_menu(bad) in (True, False)
+
+
+def test_replays_menu_ignores_the_key():
+    from zeroout.menu_text import replays_menu
+    assert replays_menu("sales") is False and replays_menu("*") is False

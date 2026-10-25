@@ -75,3 +75,28 @@ def menu_lines(text: str, keys: Iterable[str] = ()) -> list[dict]:
                     break
             lines.append({"text": clause, "key": key})
     return lines
+
+
+# Options that only replay a menu already heard. Recognized by the label, never the key, because
+# some companies use * or # for real choices.
+_REPLAY = re.compile(
+    r"\brepeat\s+(?:(?:this|that|these|those|the)\s+)?(?:information|options?|menu|message|choices)\b"
+    r"|\brepeat\s*$"
+    r"|\bhear\s+(?:(?:these|this|the|those|that)\s+)?(?:options|menu|information|message|choices)\s+again\b"
+    r"|\b(?:say|hear|play)\s+(?:that|this|it)\s+again\b"
+    r"|\b(?:previous|prior|last)\s+menu\b|\bmain\s+menu\b"
+    r"|\bgo\s+back\b|\bstart(?:ing)?\s+over\b"
+    r"|\breturn\s+to\s+(?:the\s+)?(?:previous|prior|last|main)\b"
+    r"|\bvolver\s+a\s+(?:escuchar|o[ií]r)\b|\bvolver\s+al\s+men[uúÚ](?![a-z])"
+    r"|\brepetir\s+(?:(?:este|esta|estas|estos|el|la|las|los)\s+)?"
+    r"(?:men[uúÚ](?![a-z])|(?:opciones|mensaje|informaci[oóÓ]n)\b)"
+    r"|\b(?:repetir|volver)\s*$|\bmen[uúÚ]\s+(?:anterior|principal)\b",
+    re.IGNORECASE | re.ASCII)
+
+
+def replays_menu(label) -> bool:
+    """True when an option's label is navigation (repeat, previous menu, main menu, start over)."""
+    try:
+        return isinstance(label, str) and _REPLAY.search(label) is not None
+    except Exception:
+        return False

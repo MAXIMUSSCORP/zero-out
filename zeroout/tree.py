@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from . import db
+from .menu_text import replays_menu
 from .models import Observation
 
 MAX_CORRECTION = 10.0
@@ -260,12 +261,27 @@ def _merge_locked(
 
 
 def unexplored(conn: sqlite3.Connection, company_id: int, max_depth: int) -> list[str]:
+    """Nodes still to hear, shallowest first. An option whose label only replays a menu is never
+    one of them, nor is anything under it."""
     with db.LOCK:
-        rows = conn.execute(
-            "SELECT path FROM nodes WHERE company_id = ? AND status IN ('unexplored', 'stale')",
-            (company_id,),
-        ).fetchall()
-    paths = [r["path"] for r in rows if _depth(r["path"]) <= max_depth]
+        rows = {r["path"]: r for r in conn.execute(
+            "SELECT path, status, options_json FROM nodes WHERE company_id = ?", (company_id,))}
+
+    def label(path: str) -> str:
+        parent = rows.get(path.rpartition(".")[0])
+        for o in json.loads(parent["options_json"] or "[]") if parent else ():
+            if o["key"] == path.rpartition(".")[2]:
+                return o["label"]
+        return ""
+
+    def replay(path: str) -> bool:
+        parts = path.split(".")
+        return any(replays_menu(label(".".join(parts[:i]))) for i in range(1, len(parts) + 1))
+
+    paths = [p for p, r in rows.items()
+             if r["status"] in ("unexplored", "stale") and p != "" and _depth(p) <= max_depth and not replay(p)]
+    if "" in rows and rows[""]["status"] in ("unexplored", "stale") and _depth("") <= max_depth:
+        paths.append("")
     return sorted(paths, key=lambda p: (_depth(p), p))
 
 
@@ -294,6 +310,7 @@ def tree_json(conn: sqlite3.Connection, company_id: int) -> dict | None:
             "path": path, "key": key, "label": label,
             "prompt_text": r["prompt_text"],
             "options": [{"key": o["key"], "label": o["label"]} for o in options],
+            "replays": replays_menu(label),
             "status": r["status"], "outcome": r["outcome"],
             "confirmations": r["confirmations"], "last_confirmed": r["last_confirmed"],
             "children": children,
