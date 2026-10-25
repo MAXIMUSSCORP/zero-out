@@ -1,8 +1,12 @@
+import base64
+import hashlib
 import itertools
 import json
+import re
 import socket
 import sys
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -54,7 +58,8 @@ def test_latest_wins_and_counts(dirs):
     r = site_build.build(trees, out, today=TODAY)
     assert r["files"] == 3 and r["companies"] == 1 and r["nodes"] == 1 and r["invalid"] == {}
     html = page(out, "8885550199")
-    assert "Welcome. Press 1 for billing" in html
+    assert '<li class="plain"><span class="t">Welcome.</span></li>' in html
+    assert '<li><span class="key sm">1</span><span class="t">Press 1 for billing</span></li>' in html
     assert "heard 1" in html
     assert "changed since 2026-10-02" in html
     assert "last heard 2026-10-03" in html
@@ -111,20 +116,109 @@ def test_escaping_is_inert(dirs):
         assert "javascript:" not in html
 
 
-def test_csp_on_every_page_and_no_inline_or_external(dirs):
+def test_csp_on_every_page_and_no_external(dirs):
     trees, out = dirs
     put(trees, "8885550199", "a", "2026-10-01", [obs()])
     put(trees, "8885550200", "a", "2026-10-01", [obs()], name="Beta")
     site_build.build(trees, out, today=TODAY)
     pages = list(out.rglob("*.html"))
     assert len(pages) == 3
+    digest = base64.b64encode(hashlib.sha256(site_build.CSS.encode("utf-8")).digest()).decode()
     for p in pages:
         html = p.read_text(encoding="utf-8")
         assert ("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; "
-                "style-src 'self'; script-src 'self'; img-src 'self'; base-uri 'none'; "
+                f"style-src 'sha256-{digest}'; script-src 'self'; img-src 'self'; base-uri 'none'; "
                 "form-action 'none'\">") in html
+        assert html.count("<style>") == 1 and f"<style>{site_build.CSS}</style>" in html
+        assert "style=" not in html and 'rel="stylesheet"' not in html
         assert "http://" not in html and "https://" not in html
-        assert "onclick" not in html and "<script>" not in html
+        assert "onclick" not in html and "<script>" not in html and "<form" not in html
+    assert not (out / "style.css").exists()
+
+
+def test_inline_style_is_covered_by_the_csp_hash_whatever_the_css_holds():
+    assert "</style" not in site_build.CSS.lower()
+    assert "unsafe-inline" not in site_build.CSP and "'self'" in site_build.CSP
+
+
+def test_look_tokens_are_datums_light_and_dark():
+    css = site_build.CSS
+    datum = (Path("/home/zaidv/datum/src/styles.css"))
+    for tok in ("--g1:#FCFCFC", "--g12:#1B1B1B", "--g1:#0A0A0A", "--g12:#EFEFEF", "--inv-bg:#000", "--inv-bg:#FFF"):
+        assert tok in css
+    if datum.is_file():
+        want = re.findall(r"--g\d+:#[0-9A-F]{6}", datum.read_text(encoding="utf-8")[:1800])
+        assert want and all(w in css for w in want)
+    assert "prefers-color-scheme:dark" in css and 'data-theme="dark"' in css
+    assert "Inter," in css and "980px" in css and "999px" not in css
+    assert "monospace" not in css
+
+
+def test_lines_and_key_caps_on_company_page(dirs):
+    trees, out = dirs
+    put(trees, "8885550199", "a", "2026-10-01", [
+        obs(text="Thanks for calling. For billing press 1, for support press 2.", keys=("1", "2")),
+        obs("2", text="Support. Press star to repeat.", keys=("*",)),
+    ])
+    site_build.build(trees, out, today=TODAY)
+    html = page(out, "8885550199")
+    assert html.count('<ol class="lines">') == 2
+    assert '<li class="plain"><span class="t">Thanks for calling.</span></li>' in html
+    assert '<li><span class="key sm">1</span><span class="t">For billing press 1</span></li>' in html
+    assert '<li><span class="key sm">2</span><span class="t">for support press 2.</span></li>' in html
+    assert '<li><span class="key sm">*</span><span class="t">Press star to repeat.</span></li>' in html
+    assert '<span class="key lit">2</span>' in html
+    assert html.count('class="note"') == 1 and "read only" in html and "nothing on it is verified" in html
+
+
+def test_index_is_a_list_of_numbers_with_a_note(dirs):
+    trees, out = dirs
+    put(trees, "8885550199", "a", "2026-10-01", [obs()])
+    site_build.build(trees, out, today=TODAY)
+    html = (out / "index.html").read_text(encoding="utf-8")
+    assert '<ul class="list companies">' in html and "8885550199 · 1 menus" in html
+    assert 'class="note"' in html and "read only" in html
+
+
+def test_only_options_shown_count_as_keys(dirs):
+    trees, out = dirs
+    put(trees, "8885550199", "a", "2026-10-01", [obs(text="Press 1 for billing. Press 7 for fun.", keys=("1",))])
+    site_build.build(trees, out, today=TODAY)
+    html = page(out, "8885550199")
+    assert '<span class="key sm">1</span>' in html and '<span class="key sm">7</span>' not in html
+
+
+def test_escaping_in_lines_and_key_caps(dirs):
+    trees, out = dirs
+    evil = '<img src=x onerror=alert(1)>'
+    put(trees, "8885550199", "a", "2026-10-01",
+        [obs(text=f"{evil}. Press 1 {evil}, for x press 2 {evil}", keys=("1", "2"), labels={"1": evil, "2": evil})])
+    site_build.build(trees, out, today=TODAY)
+    html = page(out, "8885550199")
+    assert "<img" not in html and "&lt;img src=x onerror=alert(1)&gt;" in html
+
+
+def test_menu_text_loaded_from_sibling_file_not_sys_path(monkeypatch):
+    import types
+    decoy = types.ModuleType("menu_text")
+    decoy.menu_lines = lambda t, k=(): []
+    monkeypatch.setitem(sys.modules, "menu_text", decoy)
+    monkeypatch.setitem(sys.modules, "zeroout.menu_text", decoy)
+    fn = site_build.load_menu_lines()
+    assert fn is not decoy.menu_lines
+    assert Path(fn.__code__.co_filename) == Path(site_build.__file__).with_name("menu_text.py")
+
+
+def test_missing_menu_text_refuses(dirs, capsys, monkeypatch):
+    trees, out = dirs
+    put(trees, "8885550199", "a", "2026-10-01", [obs()])
+    monkeypatch.setattr(site_build, "__file__", str(out.parent / "site_build.py"))
+    assert site_build.load_menu_lines() is None
+    with pytest.raises(FileNotFoundError):
+        site_build.build(trees, out, today=TODAY)
+    monkeypatch.setattr(site_build, "load_check", lambda: (lambda rel, body: []))
+    assert site_build.main([str(trees), str(out)]) == 2
+    assert "menu_text" in capsys.readouterr().out
 
 
 def test_invalid_files_skipped_with_check(dirs):
@@ -167,7 +261,7 @@ def test_sorting_and_index(dirs):
     assert html.index("Alpha") < html.index("beta") < html.index("zeta Co")
     assert "2026-10-05" in html
     assert "site.js" in html and 'id="q"' in html
-    assert (out / "site.js").is_file() and (out / "style.css").is_file()
+    assert (out / "site.js").is_file()
     assert 'href="c/8885550100.html"' in html
 
 
@@ -182,7 +276,7 @@ def test_deterministic(dirs, tmp_path):
     def snap(root):
         return {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()}
 
-    assert snap(out) == snap(out2) and len(snap(out)) == 5
+    assert snap(out) == snap(out2) and len(snap(out)) == 4
 
 
 def test_rebuild_clears_stale_pages(dirs):
@@ -198,7 +292,7 @@ def test_empty_trees(dirs):
     trees, out = dirs
     r = site_build.build(trees, out, today=TODAY)
     assert r == {"files": 0, "invalid": {}, "companies": 0, "nodes": 0}
-    assert "No trees yet" in (out / "index.html").read_text(encoding="utf-8")
+    assert "No menus yet" in (out / "index.html").read_text(encoding="utf-8")
 
 
 def test_no_network(dirs, monkeypatch):
@@ -353,3 +447,13 @@ def test_symlinked_files_skipped(dirs, tmp_path):
     r = site_build.build(trees, out, today=TODAY)
     assert "Linked Co" not in (out / "index.html").read_text(encoding="utf-8")
     assert any("symlink" in e[0] for e in r["invalid"].values())
+
+
+def test_unicode_lookalike_key_words_do_not_break_the_build(dirs):
+    trees, out = dirs
+    put(trees, "8885550199", "a", "2026-10-01",
+        [obs(text="Press \u017fix for help. Press \u017ftar. Please select one of the following.", keys=("1",))])
+    r = site_build.build(trees, out, today=TODAY)
+    assert r["companies"] == 1
+    html = page(out, "8885550199")
+    assert "Press \u017fix for help." in html and '<span class="key sm">' not in html
