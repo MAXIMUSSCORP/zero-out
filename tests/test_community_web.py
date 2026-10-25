@@ -91,13 +91,13 @@ def test_hosted_404(env, comm):
         assert env.client.post(path).status_code == 404, path
     assert "Share with the community" not in env.client.get(f"/c/{env.cid}").text
     page = env.client.get("/").text
-    assert "Update from community" not in page and "Offered by the community" not in page
+    assert "Update from the community" not in page and "Offered by the community" not in page
 
 
 def test_local_pages_show_the_buttons(env, comm):
     c = local_client(env)
     assert "Share with the community" in c.get(f"/c/{env.cid}").text
-    assert "Update from community" in c.get("/").text
+    assert "Update from the community" in c.get("/").text
 
 
 @pytest.mark.parametrize("path", ["/c/1/contribute/preview", "/c/1/contribute", "/community/update"])
@@ -113,8 +113,10 @@ def test_preview_says_it_is_public_and_names_the_account_and_company(env, comm):
     r = preview(local_client(env), env)
     assert r.status_code == 200
     assert PUBLIC in r.text
+    assert 'class="notice strong"' in r.text and "A pull request is a public proposal" in r.text
+    assert '<pre class="mono">' in r.text and 'style=' not in r.text
     assert "Acme (8005550000)" in r.text
-    assert "3 observations from this computer are ready to share" in r.text
+    assert "3 heard menus from this computer are ready to share" in r.text
     assert "phone 2" in r.text and "crawl 1" in r.text
     assert "Acme &lt;b&gt;x&lt;/b&gt;" in r.text and "<b>x</b>" not in r.text
     assert f'hx-post="/c/{env.cid}/contribute"' in r.text and "Share</button>" in r.text
@@ -124,7 +126,7 @@ def test_preview_says_it_is_public_and_names_the_account_and_company(env, comm):
 def test_preview_without_a_github_account_says_nothing_will_be_posted(env, comm, monkeypatch):
     monkeypatch.setattr(github, "github_login", lambda **kw: None)
     r = preview(local_client(env), env)
-    assert "GitHub CLI is not set up" in r.text and "outbox" in r.text and "public pull request" not in r.text
+    assert "GitHub CLI is not set up" in r.text and "a folder on this computer" in r.text and "outbox" not in r.text and "public pull request" not in r.text
 
 
 def test_preview_nothing_to_share(env, comm):
@@ -163,7 +165,7 @@ def test_share_when_something_new_was_mapped_shows_the_new_preview_instead(env, 
     r = share(c, env)
     assert r.status_code == 200
     assert "Something new was mapped since the preview; check this version." in r.text
-    assert "4 observations from this computer are ready to share" in r.text and "Share</button>" in r.text
+    assert "4 heard menus from this computer are ready to share" in r.text and "Share</button>" in r.text
     assert comm.submitted == [] and comm.marked == []
     r = share(c, env)  # confirming the new preview shares it
     assert comm.submitted[0][0].observation_ids == [4, 5, 6, 7] and comm.marked[0][0] == [4, 5, 6, 7]
@@ -271,7 +273,7 @@ def test_share_rate_limit(env, comm, monkeypatch):
 def test_update_reports_and_lists_invalid_paths(env, comm):
     r = post(local_client(env), "/community/update")
     assert r.status_code == 200
-    assert "Checked 12 files: added 30 observations, already had 5, skipped 2 invalid files." in r.text
+    assert "Checked 12 files: added 30 heard menus, already had 5, skipped 2 invalid files." in r.text
     assert "3 numbers offered by the community" in r.text
     assert "trees/8005550000/bad.json" in r.text and "&lt;i&gt;x&lt;/i&gt;" in r.text and "<i>x</i>" not in r.text
     assert comm.imported == [[("trees/8005550000/a.json", b"{}")]]
@@ -304,20 +306,20 @@ def test_update_says_when_companies_were_capped_and_orphans_skipped(env, comm):
     comm.report.capped, comm.report.orphans = True, 7
     t = post(local_client(env), "/community/update").text
     assert "Some companies have more community data than one update brings in; run Update again later." in t
-    assert "Skipped 7 observations for menu options your tree does not have." in t
+    assert "Skipped 7 heard menus for menu options your map does not have." in t
     comm.report.capped, comm.report.orphans = False, 0
     t = post(local_client(env), "/community/update").text
     assert "run Update again later" not in t and "menu options your tree does not have" not in t
     comm.report.orphans = 1
-    assert "Skipped 1 observation for menu options" in post(local_client(env), "/community/update").text
+    assert "Skipped 1 heard menu for menu options" in post(local_client(env), "/community/update").text
 
 
 def test_update_says_how_many_future_dated_observations_were_skipped(env, comm):
     assert "dated in the future" not in post(local_client(env), "/community/update").text
     comm.report.future = 3
-    assert "Skipped 3 observations dated in the future." in post(local_client(env), "/community/update").text
+    assert "Skipped 3 heard menus dated in the future." in post(local_client(env), "/community/update").text
     comm.report.future = 1
-    assert "Skipped 1 observation dated in the future." in post(local_client(env), "/community/update").text
+    assert "Skipped 1 heard menu dated in the future." in post(local_client(env), "/community/update").text
 
 
 def test_offers_list_asks_for_at_most_50(env, comm):
@@ -388,7 +390,7 @@ def test_offers_are_listed_with_a_warning_and_an_editable_add_form(env, comm):
             "statement or the company's website before you add it.") in page
     assert "8885550001" in page and "name given by a contributor: Evil &lt;b&gt;Bank&lt;/b&gt;" in page
     assert "<b>Bank</b>" not in page
-    assert "2 files" in page and "2026-10-01" in page and "2026-10-20" in page
+    assert "2 files" in page and "Oct 1, 2026" in page and "Oct 20, 2026" in page and "2026-10-01" not in page
     assert 'action="/companies"' in page and 'value="Evil &lt;b&gt;Bank&lt;/b&gt;"' in page
     assert 'name="number"' in page and 'value="8885550001"' in page and ">Add</button>" in page
 

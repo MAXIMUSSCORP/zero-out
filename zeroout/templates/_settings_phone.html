@@ -1,0 +1,31 @@
+{% from "_settings_macros.html" import field, result %}
+<section id="settings-phone" aria-labelledby="h-phone">
+  <div class="section-head"><h2 id="h-phone">Phone calls</h2>
+    <span class="state {{ 'on' if c.on else 'off' }}">{{ 'Connected' if c.on else 'Not set' }}</span></div>
+  <p class="hint">Optional. Without Twilio you map menus with your own phone on speaker. With it, Zero-Out dials for you, billed by Twilio per minute.</p>
+  <form hx-post="/settings/phone" hx-target="#settings-phone" hx-swap="outerHTML">
+    {{ field(c.fields.sid) }}
+    {{ field(c.fields.token) }}
+    {{ field(c.fields.number) }}
+    <div class="actions"><button class="btn primary" type="submit">Save</button></div>
+  </form>
+{% if c.can_stop %}
+  <form hx-post="/settings/phone/stop" hx-target="#settings-phone" hx-swap="outerHTML">
+    <div class="actions"><button class="btn secondary" type="submit">Stop using Twilio</button></div>
+  </form>
+{% endif %}
+{% if c.number %}
+  <ul class="list">
+    <li class="row"><span class="grow">{{ c.number }}<span class="sub">Twilio calls this number first, then the company.</span></span>
+<span id="number-state" class="state off" hx-get="/settings/phone/number" hx-trigger="load" hx-swap="outerHTML">Checking</span>
+    </li>
+  </ul>
+{% endif %}
+{% if c.verifying %}
+  <div class="notice" role="status" hx-post="/settings/phone/verify/status" hx-trigger="every 3s" hx-target="#settings-phone" hx-swap="outerHTML">
+    <p>Twilio is calling {{ c.verifying.number }}. Answer and type this code on the keypad: {{ c.verifying.code }}</p>
+    <p class="hint">Zero-Out checks every 3 seconds for up to 120 seconds.</p>
+  </div>
+{% endif %}
+  {{ result(c) }}
+</section>

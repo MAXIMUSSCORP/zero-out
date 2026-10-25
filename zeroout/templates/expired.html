@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Session ended - Zero Out{% endblock %}
+{% block width %} narrow{% endblock %}
+{% block body %}
+<section class="hero">
+  <h1 class="display">Session ended.</h1>
+  <p class="lede">{{ message }}</p>
+</section>
+<p class="note">Each run of zeroout run prints its own link, and an old link stops working when its session ends. Run zeroout run again for a new link.</p>
+{% endblock %}

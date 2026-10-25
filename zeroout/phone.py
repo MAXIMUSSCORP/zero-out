@@ -15,7 +15,7 @@ from .models import Observation, Option
 from .redact import redact as _redact
 
 KEYPAD = "1234567890*#"
-NOT_IN_TREE = "That menu path is not in the tree."
+NOT_IN_TREE = "That option is not on this company's map."
 NOTHING_HEARD = "Nothing usable was heard. Put the phone on speaker close to the computer and try again."
 UNREADABLE = "The menu was heard but could not be read. Try again."
 HOLD_QUIET = "That path plays hold music or waits without a menu."
@@ -32,9 +32,9 @@ MESSAGES = {
     "invalid_input": "The menu did not accept that key.",
 }
 MEANING = {
-    "mapped": "This is new, so it is now in the tree.",
+    "mapped": "This is new, so it is now on the map.",
     "confirmed": "It matches what was heard before.",
-    "changed": "It differs from what was heard before, so the branches below will be checked again.",
+    "changed": "It differs from what was heard before, so the options below will be checked again.",
     "undecided": "Zero-Out could not tell whether it matches what was heard before, so it kept the earlier version.",
 }
 

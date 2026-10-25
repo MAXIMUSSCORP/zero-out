@@ -1,9 +1,14 @@
 {% if answer.path %}
-<p><strong>Press {{ keys }}</strong></p>
+<div class="answer">
+  <div class="keys">{% for k in answer.path.split('.') %}{% if not loop.first %}<span class="then">then</span>{% endif %}<span class="key lg">{{ k }}</span>{% endfor %}</div>
+  <p>{{ answer.explanation }}</p>
+{% else %}
+<div class="answer">
+  <p>{{ answer.explanation }}</p>
 {% endif %}
-<p>{{ answer.explanation }}</p>
-{% if answer.stale %}<p class="stale">Warning: this menu may be stale. It changed recently and is being re-checked.</p>{% endif %}
-{% if answer.last_confirmed %}<p class="muted">Last confirmed {{ answer.last_confirmed }}</p>{% endif %}
+{% if answer.stale %}<div class="notice">This menu changed recently and is being checked again.</div>{% endif %}
+{% if answer.last_confirmed %}<p class="low small">Confirmed {{ answer.last_confirmed | when }}</p>{% endif %}
 {% if not answer.path and answer.top_options %}
-<ul>{% for o in answer.top_options %}<li>{{ o.key }} &rarr; {{ o.label }}</li>{% endfor %}</ul>
+  <ul class="list">{% for o in answer.top_options %}<li><span class="key sm">{{ o.key }}</span><span class="vh">: </span><span class="grow">{{ o.label }}</span></li>{% endfor %}</ul>
 {% endif %}
+</div>

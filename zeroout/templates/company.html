@@ -1,65 +1,103 @@
 {% extends "base.html" %}
+{% set active = 'companies' %}
 {% block title %}{{ company.name }} - Zero Out{% endblock %}
 {% block body %}
-<h2>{{ company.name }}</h2>
-<p class="muted">{{ company.number }}</p>
-<form method="post" action="/c/{{ company.id }}/crawl">
-  <button{% if running %} disabled{% endif %}>Map this number</button>
-</form>
-{% if local %}<p><a href="/c/{{ company.id }}/phone">Map this menu with my phone</a></p>{% endif %}
-
-<section>
-<h3>What do you need?</h3>
-<form hx-post="/c/{{ company.id }}/ask" hx-target="#answer" hx-swap="innerHTML">
-  <input name="question" placeholder="e.g. I want to dispute a charge" maxlength="500" required>
-  <button>Ask</button>
-</form>
-<div id="answer" aria-live="polite"></div>
+<a class="back" href="/">&larr; Companies</a>
+<section class="hero">
+  <h1 class="display">{{ company.name }}</h1>
+  <p class="lede tel">{{ company.number }}</p>
+  <div class="actions">
+{% if local %}<a class="btn primary" href="/c/{{ company.id }}/phone">Map with my phone</a>{% endif %}
+    <form method="post" action="/c/{{ company.id }}/crawl" class="inline">
+      <button class="btn secondary"{% if running or not crawl_ready %} disabled{% endif %}>Map automatically</button>
+    </form>
+{% if not crawl_ready %}
+    <span class="hint">Needs Twilio.{% if local %} Add it in <a href="/settings">Settings</a>.{% endif %}</span>
+{% endif %}
+  </div>
 </section>
 
-<section>
-<h3>Menu</h3>
-{% if tree %}{% with node=tree %}{% include "_tree_node.html" %}{% endwith %}
-{% else %}<p class="muted">Not mapped yet.</p>{% endif %}
+<section aria-labelledby="ask-h">
+  <div class="section-head"><h2 id="ask-h">What do you need?</h2></div>
+  <form hx-post="/c/{{ company.id }}/ask" hx-target="#answer" hx-swap="innerHTML" class="ask">
+    <input name="question" placeholder="For example, I want to dispute a charge" aria-label="What do you need?" maxlength="500" required>
+    <button>Ask</button>
+  </form>
+  <div id="answer" aria-live="polite"></div>
 </section>
 
-<section>
-<h3>Connect me</h3>
-{% if owner %}<p class="muted">We call you at {{ owner }}, then dial the company and press the keys.</p>
-{% elif needs_twilio %}<p class="muted">Connect me needs Twilio. Run zeroout setup to add it.</p>
-{% elif verified %}<p class="muted">Phone verified. Use a Connect me button in the menu above.</p>
+<section aria-labelledby="menu-h">
+  <div class="section-head"><h2 id="menu-h">The menu</h2></div>
+{% if tree %}
+  {% if tree.prompt_text or tree.obs_id or tree.status != 'unexplored' %}
+  <div class="tile root">
+    <h3>Main menu</h3>
+    {% if tree.prompt_text %}
+    <ol class="lines">{% for line in tree.prompt_text | menu_lines(tree.options | map(attribute='key') | list) %}<li>{% if line.key %}<span class="key sm">{{ line.key }}</span><span class="vh">: </span>{% endif %}<span class="text">{{ line.text }}</span></li>{% endfor %}</ol>
+    {% endif %}
+    {% if tree.last_confirmed %}<p class="low small">Confirmed {{ tree.last_confirmed | when }}</p>{% endif %}
+    {% if tree.obs_id %}<audio controls preload="none" src="/audio/{{ tree.obs_id }}"></audio>{% endif %}
+    {% if tree.status != 'unexplored' %}
+    <form class="inline" method="post" action="/c/{{ company.id }}/connect">
+      <input type="hidden" name="path" value="{{ tree.path }}">
+      <button class="btn small secondary">Connect me</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% if tree.children %}
+  <ul class="list menu">
+    {% for child in tree.children %}
+    <li>{% with node=child %}{% include "_tree_node.html" %}{% endwith %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
 {% else %}
-<p class="muted">We call you, then dial the company and press the keys. Verify your phone first.</p>
-<form hx-post="/verify/start" hx-target="#verify-msg">
-  <input name="phone" type="tel" placeholder="Your phone number" required>
-  <button>Send code</button>
-</form>
-<form hx-post="/verify/check" hx-target="#verify-msg">
-  <input name="phone" type="tel" placeholder="Your phone number" required>
-  <input name="code" inputmode="numeric" placeholder="Code" required>
-  <button>Verify</button>
-</form>
-<div id="verify-msg"></div>
+  <div class="tile"><span class="state off">Not mapped yet</span><p class="low">Nobody has heard this menu. Map it with your phone or let Zero-Out call it.</p></div>
+{% endif %}
+</section>
+
+<section aria-labelledby="connect-h">
+  <div class="section-head"><h2 id="connect-h">Connect me</h2></div>
+{% if owner %}<p>We call you at {{ owner }}, then dial the company and press the keys.</p>
+{% elif needs_twilio %}<p>Connect me needs Twilio. {% if local %}Add it in <a href="/settings">Settings</a>.{% else %}Run zeroout setup to add it.{% endif %}</p>
+{% elif verified %}<p>Phone verified. Use a Connect me button in the menu above.</p>
+{% else %}
+  <p>We call you, then dial the company and press the keys. Verify your phone first.</p>
+  <form hx-post="/verify/start" hx-target="#verify-msg" class="form-row">
+    <div class="field"><label for="v-phone">Your phone number</label><input id="v-phone" name="phone" type="tel" required></div>
+    <button class="btn secondary">Send code</button>
+  </form>
+  <form hx-post="/verify/check" hx-target="#verify-msg" class="form-row">
+    <div class="field"><label for="v-phone2">Your phone number</label><input id="v-phone2" name="phone" type="tel" required></div>
+    <div class="field"><label for="v-code">Code</label><input id="v-code" name="code" inputmode="numeric" required></div>
+    <button>Verify</button>
+  </form>
+  <div id="verify-msg" aria-live="polite"></div>
 {% endif %}
 </section>
 
 {% if local %}
-<section>
-<h3>Share with the community</h3>
-<p class="muted">Send what you mapped here to the shared trees so nobody else has to map it again. You see the exact file first.</p>
-<form hx-post="/c/{{ company.id }}/contribute/preview" hx-target="#share" hx-swap="innerHTML"><button>Preview what would be shared</button></form>
-<div id="share" aria-live="polite"></div>
+<section aria-labelledby="share-h">
+  <div class="section-head"><h2 id="share-h">Share with the community</h2></div>
+  <p>Send what you mapped here to the shared maps so nobody else has to map it again. You see the exact file first.</p>
+  <form hx-post="/c/{{ company.id }}/contribute/preview" hx-target="#share" hx-swap="innerHTML"><button class="btn secondary">Preview what would be shared</button></form>
+  <div id="share" aria-live="polite"></div>
 </section>
 {% endif %}
 
-<section>
-<h3>Changes</h3>
-<ul class="plain">
+<section aria-labelledby="changes-h">
+  <div class="section-head"><h2 id="changes-h">Changes</h2></div>
+{% if changes %}
+  <ul class="list">
 {% for c in changes %}
-  <li>{{ c.path or 'Main menu' }} <span class="muted">{{ c.created_at }}</span></li>
-{% else %}
-  <li class="muted">No changes seen.</li>
+    <li><span class="grow">{{ c.path or 'Main menu' }}</span><span class="low num">{{ c.created_at | when }}</span></li>
 {% endfor %}
-</ul>
+  </ul>
+{% else %}
+  <p class="low">No changes seen.</p>
+{% endif %}
 </section>
+
+<p class="note">A phone menu changes without warning, so every answer here carries the date it was last confirmed. If a key does not do what this page says, map it again and the next person gets the fix.</p>
 {% endblock %}

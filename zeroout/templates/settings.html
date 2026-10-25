@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% set active = 'settings' %}
+{% block title %}Settings{% endblock %}
+{% block width %} narrow{% endblock %}
+{% block body %}
+<section class="hero">
+  <h1 class="display">Settings</h1>
+  <p class="lede">Your keys and choices, kept in a file only you can read on this computer.</p>
+  <p class="hint wrap">Saved in {{ p.file }}</p>
+</section>
+{% with c = p.model %}{% include "_settings_model.html" %}{% endwith %}
+{% with c = p.phone %}{% include "_settings_phone.html" %}{% endwith %}
+{% with c = p.speech %}{% include "_settings_speech.html" %}{% endwith %}
+{% with c = p.spending %}{% include "_settings_spending.html" %}{% endwith %}
+{% with c = p.community %}{% include "_settings_community.html" %}{% endwith %}
+{% include "_settings_appearance.html" %}
+<p class="note">Your keys stay in a file only you can read on this computer. Zero-Out sends the Token Factory key only to Token Factory and the Twilio token only to Twilio. Changes apply at once, with no restart. Downloading a speech model stays in <b>zeroout setup</b>, because it is 470 MB and checked byte for byte.</p>
+{% endblock %}

@@ -1,0 +1,23 @@
+{% macro field(f) %}
+<div class="field{% if f.bad %} bad{% endif %}">
+  <label for="f-{{ f.name }}">{{ f.label }}</label>
+{% if f.locked %}
+  {% if f.kind == "select" %}<select id="f-{{ f.name }}" disabled><option>{{ f.value }}</option></select>
+  {% else %}<input id="f-{{ f.name }}" type="text" value="{{ '' if f.secret else f.value }}" disabled>{% endif %}
+  <p class="hint">Set in your environment as {{ f.key }}; change it there.</p>
+{% elif f.kind == "select" %}
+  <select id="f-{{ f.name }}" name="{{ f.name }}">{% for o in f.options %}<option value="{{ o }}"{% if o == f.value %} selected{% endif %}>{{ o }}</option>{% endfor %}</select>
+{% elif f.secret %}
+  <input id="f-{{ f.name }}" name="{{ f.name }}" type="password" autocomplete="new-password" spellcheck="false">
+  <p class="hint">{% if f.saved %}Saved{% if f.tail %}, ends in {{ f.tail }}{% endif %}. Leave it empty to keep it.{% else %}Not set.{% endif %}</p>
+{% else %}
+  <input id="f-{{ f.name }}" name="{{ f.name }}" type="text" value="{{ f.value }}" autocomplete="off" spellcheck="false">
+{% endif %}
+{% if f.hint and not f.locked %}  <p class="hint">{{ f.hint }}</p>{% endif %}
+{% if f.error and not (f.locked and f.error.startswith("Set in your environment")) %}  <p class="error-text">{{ f.error }}</p>{% endif %}
+</div>
+{% endmacro %}
+
+{% macro result(c) %}
+{% if c.result %}<p class="notice{% if not c.ok %} strong{% endif %}" role="status">{{ c.result }}</p>{% endif %}
+{% endmacro %}

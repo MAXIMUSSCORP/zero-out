@@ -1,0 +1,9 @@
+{% from "_settings_macros.html" import field, result %}
+<section id="settings-spending" aria-labelledby="h-spending">
+  <div class="section-head"><h2 id="h-spending">Spending</h2></div>
+  <form hx-post="/settings/spending" hx-target="#settings-spending" hx-swap="outerHTML">
+    {{ field(c.fields.cap) }}
+    <div class="actions"><button class="btn primary" type="submit">Save</button></div>
+  </form>
+  {{ result(c) }}
+</section>

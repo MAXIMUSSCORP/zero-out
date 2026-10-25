@@ -1,0 +1,5 @@
+{% if c.state == "verified" %}<span id="number-state" class="state on">Verified</span>
+{% elif c.state == "unverified" %}<span id="number-state"><span class="state warn">Not verified yet</span>
+  <form hx-post="/settings/phone/verify" hx-target="#settings-phone" hx-swap="outerHTML"><button class="btn secondary small" type="submit">Verify my number</button></form></span>
+{% elif c.state == "error" %}<span id="number-state"><span class="state off">Could not check with Twilio</span> <span class="hint">{{ c.reason }}</span></span>
+{% endif %}

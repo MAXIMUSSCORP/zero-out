@@ -29,7 +29,9 @@ from .ask import MAX_QUESTION, ask as ask_question
 from .budget import calls_today, can_spend
 from .config import Settings, load_settings
 from .crawl import crawl
+from .menu_text import menu_lines
 from .paths import is_toll_free, normalize_number
+from .settings_page import CHECKS_PER_HOUR, READS_PER_HOUR, SettingsPage
 from .tree import tree_json
 
 log = logging.getLogger(__name__)
@@ -41,6 +43,7 @@ PATH_RE = re.compile(r"[0-9*#](\.[0-9*#])*")
 HOUR = 3600
 STATIC = Path(__file__).parent / "static"
 MIN_SECRET = 32
+CROSS_SITE_MSG = "Settings can only be opened from another page of this Zero-Out, not from another site."
 VERIFY_DAILY_CAP = 100
 CRAWL_CALLS_PER_DAY = 40
 CRAWL_MINUTES_PER_DAY = 30
@@ -58,8 +61,8 @@ PHONE_BUSY_MSG = "Still hearing the last clip."
 PHONE_CRAWLING_MSG = "Already mapping this company with automatic calls."
 PHONE_GONE_MSG = "That clip is no longer waiting. Record it again."
 PHONE_CHECK_MSG = "Check what was heard, then keep it or discard it."
-PHONE_MOVED_ON = " Zero-Out moved on from that branch after two tries."
-PHONE_DISPUTED = " Zero-Out moved on; an automatic call can check that branch later."
+PHONE_MOVED_ON = " Zero-Out moved on from that option after two tries."
+PHONE_DISPUTED = " Zero-Out moved on; an automatic call can check that option later."
 PHONE_PENDING_SECONDS = 600
 CONTRIBUTE_PER_HOUR = 10
 UPDATE_PER_HOUR = 6
@@ -69,6 +72,8 @@ PREVIEW_CHANGED_MSG = "Something new was mapped since the preview; check this ve
 COMMUNITY_BUSY_MSG = "Already mapping this company, try again when it finishes."
 SHARE_FAILED_MSG = "Something went wrong sharing that file. Nothing was marked as shared."
 UPDATE_FAILED_MSG = "Something went wrong updating from the community. Try again later."
+NEEDS_TWILIO_LOCAL_MSG = "Needs Twilio. Add it in Settings."
+NEEDS_TWILIO_MSG = "Needs Twilio."
 PHONE_TOO_BIG_MSG = "That recording is too long. Stop sooner and try again."
 CSP = (
     "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; media-src 'self'; "
@@ -118,12 +123,15 @@ class RateLimiter:
 
 class TwilioVerify:
     def __init__(self, settings: Settings, client=None):
-        self.settings, self._client = settings, client
+        self.settings, self._client, self._injected = settings, client, client is not None
+        self._creds = None
 
     def _svc(self):
-        if self._client is None:
+        creds = (self.settings.twilio_sid, self.settings.twilio_token)
+        # Settings can change the credentials while the app runs, so a client built here is rebuilt then.
+        if not self._injected and (self._client is None or creds != self._creds):
             from twilio.rest import Client
-            self._client = Client(self.settings.twilio_sid, self.settings.twilio_token)
+            self._client, self._creds = Client(*creds), creds
         return self._client.verify.v2.services(self.settings.twilio_verify_sid)
 
     def start(self, e164: str) -> None:
@@ -158,6 +166,10 @@ class LocalGuard:
         return frozenset(f"http://{h}{p}" for h in LOCAL_HOSTS for p in ports)
 
 
+ERROR_HEADINGS = {
+    400: "Check that again", 403: "Not allowed", 404: "Not found", 409: "Already in progress",
+    429: "Too many requests", 502: "Could not reach the service", 503: "Not available right now",
+}
 LOCAL_HOSTS = ("127.0.0.1", "localhost")
 LOCAL_MAX_AGE = 12 * HOUR
 LOCKED_MSG = "Open Zero-Out from the link that zeroout run printed."
@@ -192,7 +204,7 @@ def _annotate(conn, cid: int, node: dict) -> None:
 
 def create_app(
     settings: Settings, conn=None, probe=None, listen=None, same=None, chat=None,
-    connect=None, verify=None, local: LocalGuard | None = None,
+    connect=None, verify=None, local: LocalGuard | None = None, services=None,
 ) -> FastAPI:
     if len(settings.session_secret or "") < MIN_SECRET or settings.session_secret == "change-me":
         raise RuntimeError(
@@ -239,6 +251,8 @@ def create_app(
         return response
 
     templates = Jinja2Templates(directory=str(TEMPLATES))
+    templates.env.filters["menu_lines"] = menu_lines
+    templates.env.filters["when"] = when
     app.state.running = set()
     app.state.verify_daily = {"day": "", "count": 0}
     lock = threading.Lock()
@@ -255,9 +269,10 @@ def create_app(
     def get_probe():
         if probe is not None:
             return probe
-        if "probe" not in lazy:
+        creds = (settings.twilio_sid, settings.twilio_token)
+        if lazy.get("probe_creds") != creds:  # Settings can change them while the app runs
             from .probe import twilio_probe
-            lazy["probe"] = twilio_probe(settings)
+            lazy["probe"], lazy["probe_creds"] = twilio_probe(settings), creds
         return lazy["probe"]
 
     def get_listen():
@@ -333,11 +348,16 @@ def create_app(
                 raise HTTPException(429, "Too many codes sent today, try again tomorrow")
             d["count"] += 1
 
+    def twilio_ready() -> bool:
+        """Read at call time, since Settings changes the running keys. An injected probe needs none."""
+        return probe is not None or all((settings.twilio_sid, settings.twilio_token, settings.twilio_from))
+
     def render(request: Request, name: str, status: int = 200, **ctx) -> HTMLResponse:
         ctx.setdefault("budget_ok", can_spend(conn, settings))
         ctx.setdefault("local", local is not None)
         if name == "index.html":
             ctx.setdefault("offers", offered())
+            ctx.setdefault("tf_key_set", bool(settings.tf_api_key))
         return templates.TemplateResponse(request, name, ctx, status_code=status)
 
     def error_page(request: Request, msg: str, status: int) -> HTMLResponse:
@@ -350,20 +370,37 @@ def create_app(
                 "AND n.status != 'unexplored') AS mapped FROM companies c ORDER BY c.name"
             ).fetchall()
 
+    def message_page(request: Request, heading: str, message: str, status: int = 200,
+                     cid: int | None = None, note: str = "") -> HTMLResponse:
+        """A small full page for a result the person reached by a plain form post."""
+        with db.LOCK:
+            known = cid is not None and conn.execute(
+                "SELECT 1 FROM companies WHERE id = ?", (cid,)).fetchone() is not None
+        back = (f"/c/{cid}", "Back to this company") if known else ("/", "Companies")
+        return render(request, "message.html", status, heading=heading, message=message,
+                      back_href=back[0], back_label=back[1], note=note)
+
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException):
         # htmx 1.9 does not swap 4xx responses, so show these errors as 200 partials.
         path = request.url.path
         htmx = request.headers.get("hx-request") == "true" and (
             path.startswith(("/verify/", "/community/"))
+            or (local is not None and path.startswith("/settings"))
             or (path.startswith("/c/") and path.endswith(("/ask", "/contribute", "/contribute/preview"))))
-        return HTMLResponse(f"<p>{_esc(str(exc.detail))}</p>", status_code=200 if htmx else exc.status_code)
+        if request.headers.get("hx-request") == "true":
+            return HTMLResponse(f'<p class="error-text">{_esc(str(exc.detail))}</p>', status_code=200 if htmx else exc.status_code)
+        m = re.match(r"/c/(\d{1,18})(/|$)", path)
+        return message_page(
+            request, ERROR_HEADINGS.get(exc.status_code, "Something went wrong"), str(exc.detail),
+            exc.status_code, cid=int(m.group(1)) if m else None,
+            note="Nothing was changed by this request. Go back and try again, or pick another company.")
 
     @app.get("/expired", response_class=HTMLResponse)
-    def expired():
+    def expired(request: Request):
         if local is None:
             raise HTTPException(404, "Not found")
-        return HTMLResponse(f"<p>{EXPIRED_MSG}</p>")
+        return render(request, "expired.html", message=EXPIRED_MSG, local=False)
 
     @app.get("/start")
     def start(request: Request, t: str = ""):
@@ -394,6 +431,7 @@ def create_app(
             owner=format_owner(settings.owner_number) if settings.owner_number else "",
             needs_twilio=not settings.owner_number and not settings.twilio_verify_sid,
             running=cid in app.state.running, local=local is not None,
+            crawl_ready=twilio_ready(),
         )
 
     @app.get("/c/{cid}/phone", response_class=HTMLResponse)
@@ -544,7 +582,8 @@ def create_app(
             return JSONResponse({
                 "message": PHONE_CHECK_MSG, "nonce": nonce,
                 "heard": {"outcome": o.outcome, "prompt_text": o.prompt_text,
-                          "options": [{"key": x.key, "label": x.label} for x in o.options]}})
+                          "options": [{"key": x.key, "label": x.label} for x in o.options],
+                          "lines": menu_lines(o.prompt_text, [x.key for x in o.options])}})
         except HTTPException as e:
             return JSONResponse({"error": str(e.detail)}, status_code=e.status_code)
         finally:
@@ -625,7 +664,7 @@ def create_app(
             with lock:
                 ph["skip"].setdefault(key, set()).add(path)
             return JSONResponse(with_skipped(key, {
-                "message": "Skipped that branch.",
+                "message": "Skipped that option.",
                 "next": step_json(phone.next_step(conn, cid, path, skip=skip_set(key)))}))
         except HTTPException as e:
             return JSONResponse({"error": str(e.detail)}, status_code=e.status_code)
@@ -743,7 +782,7 @@ def create_app(
         company(cid)
         limited(ask_limit, request)
         ans = ask_question(conn, settings, cid, question[:MAX_QUESTION], chat=get_chat())
-        return render(request, "_answer.html", answer=ans, keys=" → ".join(ans.path.split(".")) if ans.path else "")
+        return render(request, "_answer.html", answer=ans)
 
     @app.post("/companies")
     def add_company(request: Request, name: str = Form(""), number: str = Form("")):
@@ -771,6 +810,8 @@ def create_app(
     def crawl_route(request: Request, cid: int, tasks: BackgroundTasks):
         same_origin(request)
         company(cid)
+        if not twilio_ready():
+            raise HTTPException(400, NEEDS_TWILIO_LOCAL_MSG if local is not None else NEEDS_TWILIO_MSG)
         limited(crawl_limit, request)
         if listen is None:
             from . import hear
@@ -817,7 +858,7 @@ def create_app(
             get_verify().start(e164)
         except Exception:
             raise HTTPException(502, "Could not send the code, try again later")
-        return HTMLResponse("<p>Code sent. Enter it below.</p>")
+        return HTMLResponse("<p class=\"notice\">Code sent. Enter it below.</p>")
 
     @app.post("/verify/check")
     def verify_check(request: Request, phone: str = Form(""), code: str = Form("")):
@@ -836,7 +877,7 @@ def create_app(
         if not ok:
             raise HTTPException(400, "Wrong or expired code")
         request.session["phone"] = e164
-        return HTMLResponse("<p>Phone verified.</p>")
+        return HTMLResponse("<p class=\"notice\">Phone verified.</p>")
 
     @app.post("/c/{cid}/connect")
     def connect_route(request: Request, cid: int, path: str = Form("")):
@@ -870,7 +911,96 @@ def create_app(
         except Exception:
             discard(cid)
             raise
-        return HTMLResponse("<p>Calling you now. Pick up to be connected.</p>")
+        if request.headers.get("hx-request") != "true":
+            return message_page(
+                request, "Calling you now", "Calling you now. Pick up to be connected.", cid=cid,
+                note="Zero-Out dials you first, then the company, and presses the keys you chose. "
+                     "Keep your phone nearby until it rings.")
+        return HTMLResponse("<p class=\"notice\">Calling you now. Pick up to be connected.</p>")
+
+    # ---------- settings (zeroout run only) ----------
+
+    settings_page = SettingsPage(settings, services)
+    settings_limit, settings_reads = RateLimiter(CHECKS_PER_HOUR), RateLimiter(READS_PER_HOUR)
+
+    def settings_guard(request: Request, limit: bool = False, reads: bool = False) -> None:
+        if local is None:
+            raise HTTPException(404, "Not found")
+        if request.method == "GET" and request.headers.get("sec-fetch-site") == "cross-site":
+            raise HTTPException(403, CROSS_SITE_MSG)
+        if limit:
+            same_origin(request)
+            limited(settings_limit, request)
+        if reads:
+            limited(settings_reads, request)
+
+    def settings_part(request: Request, ctx: dict) -> HTMLResponse:
+        return render(request, f"_settings_{ctx['section']}.html", c=ctx)
+
+    @app.get("/settings", response_class=HTMLResponse)
+    def settings_view(request: Request):
+        settings_guard(request)
+        return render(request, "settings.html", p=settings_page.page())
+
+    @app.post("/settings/model", response_class=HTMLResponse)
+    def settings_model(request: Request, api_key: str = Form(""), base_url: str = Form(""),
+                       nano: str = Form(""), super_: str = Form("", alias="super")):
+        settings_guard(request, limit=True)
+        form = {"api_key": api_key, "base_url": base_url, "nano": nano, "super": super_}
+        return settings_part(request, settings_page.model(form, save=True))
+
+    @app.post("/settings/model/check", response_class=HTMLResponse)
+    def settings_model_check(request: Request, api_key: str = Form(""), base_url: str = Form(""),
+                             nano: str = Form(""), super_: str = Form("", alias="super")):
+        settings_guard(request, limit=True)
+        form = {"api_key": api_key, "base_url": base_url, "nano": nano, "super": super_}
+        return settings_part(request, settings_page.model(form, save=False))
+
+    @app.post("/settings/phone", response_class=HTMLResponse)
+    def settings_phone(request: Request, sid: str = Form(""), token: str = Form(""), number: str = Form("")):
+        settings_guard(request, limit=True)
+        return settings_part(request, settings_page.phone({"sid": sid, "token": token, "number": number}))
+
+    @app.post("/settings/phone/verify", response_class=HTMLResponse)
+    def settings_verify(request: Request):
+        settings_guard(request, limit=True)
+        return settings_part(request, settings_page.verify())
+
+    @app.post("/settings/phone/verify/status", response_class=HTMLResponse)
+    def settings_verify_status(request: Request):
+        settings_guard(request, reads=True)
+        same_origin(request)
+        return settings_part(request, settings_page.verify_status())
+
+    @app.post("/settings/phone/stop", response_class=HTMLResponse)
+    def settings_phone_stop(request: Request):
+        settings_guard(request, limit=True)
+        return settings_part(request, settings_page.stop())
+
+    @app.get("/settings/phone/number", response_class=HTMLResponse)
+    def settings_phone_number(request: Request):
+        settings_guard(request, reads=True)
+        return render(request, "_settings_number.html", c=settings_page.number())
+
+    @app.post("/settings/speech", response_class=HTMLResponse)
+    def settings_speech(request: Request, model: str = Form("")):
+        settings_guard(request, limit=True)
+        return settings_part(request, settings_page.speech({"model": model}))
+
+    @app.post("/settings/spending", response_class=HTMLResponse)
+    def settings_spending(request: Request, cap: str = Form("")):
+        settings_guard(request, limit=True)
+        return settings_part(request, settings_page.spending({"cap": cap}))
+
+    @app.post("/settings/community", response_class=HTMLResponse)
+    def settings_community(request: Request, repo: str = Form("")):
+        settings_guard(request, limit=True)
+        return settings_part(request, settings_page.community({"repo": repo}))
+
+    @app.get("/settings/community/account", response_class=HTMLResponse)
+    def settings_account(request: Request):
+        settings_guard(request, reads=True)
+        return render(request, "_settings_account.html", c=settings_page.account())
 
     @app.get("/api/companies/{cid}/tree")
     def api_tree(cid: int):
@@ -892,6 +1022,18 @@ def create_app(
         return FileResponse(f, media_type="audio/wav")
 
     return app
+
+
+def when(value) -> str:
+    """A stored timestamp as a plain date; anything that does not parse is shown as it is."""
+    if not value:
+        return ""
+    text = str(value)
+    try:
+        d = datetime.fromisoformat(text)
+    except ValueError:
+        return text
+    return f"{d:%b} {d.day}, {d.year}"
 
 
 def _esc(s: str) -> str:

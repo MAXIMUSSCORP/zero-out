@@ -156,6 +156,13 @@ def load(model_dir: str) -> Any:
         return _cache[model_dir]
 
 
+def release_except(model_dir: str) -> None:
+    """Drops every loaded recognizer but one, so switching models in Settings does not keep two in memory."""
+    with _lock:
+        for k in [k for k in _cache if k != model_dir]:
+            del _cache[k]
+
+
 def _fetch(url: str, path: Path, progress: Callable[[int, int], None] | None, expected: int) -> None:
     limit = expected
     too_big = RuntimeError(f"The download is larger than expected ({expected} bytes); stopping.")

@@ -191,7 +191,7 @@ function harness(over = {}) {
 // session expiry text
 assert.equal(phone.EXPIRED_TEXT,
   'This Zero-Out session has ended. Open it again from the link that zeroout run printed.');
-assert.equal(phone.nextText(null, 2), 'Every branch Zero-Out could reach is mapped or was skipped. Hang up.');
+assert.equal(phone.nextText(null, 2), 'Every option Zero-Out could reach is mapped or was skipped. Hang up.');
 assert.equal(phone.nextText(null, 0), 'This menu is mapped as far as Zero-Out goes. Hang up.');
 
 // next-step text
@@ -202,5 +202,47 @@ assert.equal(phone.nextText({ keys: [], press_now: null, label: '' }),
   'Call the number. Click Start listening when it answers.');
 assert.equal(phone.nextText({ keys: ['1', '2'], press_now: null, label: 'x' }),
   'Hang up and call again. Press 1, then 2, waiting for each menu to finish. Click Start listening right after your last key.');
+
+// keypad lighting and headline
+assert.equal(phone.litKey(null), '');
+assert.equal(phone.litKey({ press_now: '2', keys: ['1', '2'] }), '2');
+assert.equal(phone.litKey({ press_now: '*', keys: ['*'] }), '*');
+assert.equal(phone.litKey({ press_now: null, keys: ['1', '2'] }), '1');
+assert.equal(phone.litKey({ press_now: null, keys: [] }), '');
+assert.equal(phone.headlineText({ press_now: '3', keys: ['3'] }), 'Press 3 now');
+assert.equal(phone.headlineText({ press_now: null, keys: ['1', '2'] }), 'Call again, press 1, then 2');
+assert.equal(phone.headlineText({ press_now: null, keys: [] }), 'Call the number');
+assert.equal(phone.headlineText(null), 'Hang up');
+
+// heard lines: the server's lines, else the prompt as one line, else nothing
+assert.deepEqual(phone.heardLines('a b', [{ text: 'a', key: null }]), [{ text: 'a', key: null }]);
+assert.deepEqual(phone.heardLines('a b', undefined), [{ text: 'a b', key: null }]);
+assert.deepEqual(phone.heardLines('a b', []), [{ text: 'a b', key: null }]);
+assert.deepEqual(phone.heardLines('', null), []);
+
+// renderLines on a minimal fake DOM: text only, a key cap only for a keyed line
+function fakeEl(tag) {
+  const el = { tag, className: '', children: [], _text: '', innerHTMLSet: false };
+  el.appendChild = (c) => { el.children.push(c); return c; };
+  Object.defineProperty(el, 'textContent', {
+    get: () => el._text + el.children.map((c) => c.textContent).join(''),
+    set: (v) => { el._text = v; el.children = []; },
+  });
+  Object.defineProperty(el, 'innerHTML', { set: () => { el.innerHTMLSet = true; } });
+  return el;
+}
+const doc = { createElement: fakeEl };
+const list = fakeEl('ol');
+list.textContent = 'old';
+phone.renderLines(doc, list, [{ text: 'For billing press 1.', key: '1' }, { text: '<b>hi</b>', key: null }]);
+assert.equal(list.children.length, 2);
+const [keyed, plain] = list.children;
+assert.deepEqual(keyed.children.map((c) => [c.className, c.textContent]), [['key sm', '1'], ['vh', ': '], ['text', 'For billing press 1.']]);
+assert.equal(keyed.textContent, '1: For billing press 1.');
+assert.deepEqual(plain.children.map((c) => [c.className, c.textContent]), [['text', '<b>hi</b>']]);
+assert.ok(list.textContent.includes('For billing press 1.') && list.textContent.includes('<b>hi</b>'));
+assert.equal(list.innerHTMLSet, false);
+phone.renderLines(doc, list, []);
+assert.equal(list.children.length, 0);
 
 console.log('ok');

@@ -1,0 +1,17 @@
+{% from "_settings_macros.html" import field, result %}
+<section id="settings-model" aria-labelledby="h-model">
+  <div class="section-head"><h2 id="h-model">Language model</h2>
+    <span class="state {{ 'on' if c.on else 'off' }}">{{ 'Connected' if c.on else 'Not set' }}</span></div>
+  <p class="hint">Zero-Out reads menus with models served by Nebius Token Factory.</p>
+  <form hx-post="/settings/model" hx-target="#settings-model" hx-swap="outerHTML">
+    {{ field(c.fields.api_key) }}
+    {{ field(c.fields.base_url) }}
+    {{ field(c.fields.nano) }}
+    {{ field(c.fields.super) }}
+    <div class="actions">
+      <button class="btn primary" type="submit">Save</button>
+      <button class="btn secondary" type="button" hx-post="/settings/model/check" hx-target="#settings-model" hx-swap="outerHTML">Check the key and list models</button>
+    </div>
+  </form>
+  {{ result(c) }}
+</section>

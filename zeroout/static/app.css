@@ -1,0 +1,262 @@
+/* Zero-Out's one stylesheet. Datum's twelve step gray scale and no hue anywhere;
+   the look of a product page: a quiet bar, one centered column, big tight
+   headlines, pill buttons in black and white, tiles without shadows. The one
+   loud thing is the phone key (.key, .keypad): the answer to "what do I press".
+   The class vocabulary is in docs/2026-10-25-ui-settings-plan.md. Pages carry no
+   inline styles; the CSP allows this file and nothing else. */
+
+/* ---------- tokens ---------- */
+
+:root{
+  --g1:#FCFCFC;--g2:#F8F8F8;--g3:#F1F1F1;--g4:#E9E9E9;--g5:#E1E1E1;--g6:#D8D8D8;
+  --g7:#CBCBCB;--g8:#B4B4B4;--g9:#8C8C8C;--g10:#7A7A7A;--g11:#606060;--g12:#1B1B1B;
+  --inv-bg:#000;--inv-fg:#FFF;--bar-bg:rgba(252,252,252,.78);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --g1:#0A0A0A;--g2:#101010;--g3:#181818;--g4:#202020;--g5:#282828;--g6:#303030;
+  --g7:#3A3A3A;--g8:#4C4C4C;--g9:#6C6C6C;--g10:#7C7C7C;--g11:#A2A2A2;--g12:#EFEFEF;
+  --inv-bg:#FFF;--inv-fg:#000;--bar-bg:rgba(10,10,10,.72);
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --g1:#0A0A0A;--g2:#101010;--g3:#181818;--g4:#202020;--g5:#282828;--g6:#303030;
+  --g7:#3A3A3A;--g8:#4C4C4C;--g9:#6C6C6C;--g10:#7C7C7C;--g11:#A2A2A2;--g12:#EFEFEF;
+  --inv-bg:#FFF;--inv-fg:#000;--bar-bg:rgba(10,10,10,.72);
+  color-scheme:dark;
+}
+:root{
+  --app:var(--g1);--tile:var(--g3);--surface:var(--g3);--el:var(--g4);--el-hi:var(--g5);
+  --line:var(--g6);--line-int:var(--g7);--line-strong:var(--g8);
+  --text:var(--g12);--text-low:var(--g11);--text-dim:var(--g9);
+  --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --page:980px;--narrow:692px;--gutter:22px;
+}
+
+/* ---------- base ---------- */
+
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{margin:0;background:var(--app);color:var(--text);font-family:var(--sans);
+  font-size:17px;line-height:1.47;letter-spacing:-.011em;-webkit-font-smoothing:antialiased}
+h1,h2,h3,p,ul,ol,figure,blockquote{margin:0}
+h1,h2,h3{font-weight:600;text-wrap:balance}
+h2{font-size:28px;line-height:1.14;letter-spacing:-.02em}
+h3{font-size:21px;line-height:1.24;letter-spacing:-.015em}
+p{max-width:65ch}
+p+p{margin-top:12px}
+/* Rhythm: what follows a paragraph, list or heading gets a steady gap, so no page needs spacer markup. */
+:is(p,.list,.lines) + :is(.actions,form,.btn),.form-row + .form-row{margin-top:20px}
+:is(h2,h3) + :is(form,.field,.lines,.actions),p + .field{margin-top:16px}
+a{color:var(--text);text-decoration-thickness:1px;text-underline-offset:3px}
+a:hover{text-decoration-thickness:2px}
+strong{font-weight:600}
+button,input,select,textarea{font:inherit;color:inherit;letter-spacing:inherit;margin:0}
+:focus-visible{outline:3px solid var(--text);outline-offset:3px;border-radius:6px}
+::selection{background:var(--inv-bg);color:var(--inv-fg)}
+.num{font-variant-numeric:tabular-nums}
+.tel{font-variant-numeric:proportional-nums}
+.mono{font-family:var(--mono);font-size:13px;line-height:1.55;letter-spacing:0}
+pre.mono{background:var(--tile);border-radius:14px;padding:16px 18px;max-height:22rem;overflow:auto;margin:16px 0}
+.low{color:var(--text-low)}
+.small{font-size:15px}
+.wrap{overflow-wrap:anywhere}
+.skip{position:absolute;left:-9999px;top:8px;z-index:20;background:var(--inv-bg);color:var(--inv-fg);padding:10px 16px;border-radius:999px}
+.skip:focus{left:16px}
+.vh{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+
+/* ---------- bar and page ---------- */
+
+.bar{position:sticky;top:0;z-index:10;background:var(--bar-bg);
+  -webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);
+  border-bottom:1px solid var(--line)}
+.bar-in{max-width:calc(var(--page) + 2 * var(--gutter));margin:0 auto;padding:0 var(--gutter);
+  height:52px;display:flex;align-items:center;gap:24px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:600;font-size:17px;letter-spacing:-.02em;margin-right:auto}
+.brand .key{width:26px;height:26px;border-radius:8px;font-size:14px;box-shadow:none}
+.bar nav{display:flex;gap:4px}
+.bar nav a{font-size:14px;color:var(--text-low);text-decoration:none;padding:8px 12px;border-radius:999px;min-height:36px;display:inline-flex;align-items:center}
+.bar nav a:hover{color:var(--text);background:var(--el)}
+.bar nav a[aria-current="page"]{color:var(--text);font-weight:500}
+
+.page{max-width:calc(var(--page) + 2 * var(--gutter));margin:0 auto;padding:0 var(--gutter) 96px}
+.page.narrow{max-width:calc(var(--narrow) + 2 * var(--gutter))}
+.page > section,.page > .section{margin-top:72px}
+.section-head{display:grid;gap:6px;margin-bottom:20px}
+.section-head p{color:var(--text-low)}
+.back{display:inline-flex;align-items:center;gap:6px;margin-top:28px;font-size:15px;color:var(--text-low);text-decoration:none;min-height:44px}
+.back:hover{color:var(--text)}
+
+.hero{padding:72px 0 8px}
+.back + .hero{padding-top:20px}
+.display{font-size:56px;line-height:1.07;font-weight:700;letter-spacing:-.03em}
+.lede{font-size:21px;line-height:1.38;color:var(--text-low);margin-top:14px;max-width:34em;letter-spacing:-.015em}
+.hero .actions{margin-top:32px}
+.hero + .note{margin-top:56px}
+h2.num{font-variant-numeric:normal;font-size:28px;line-height:1.14;font-weight:500;color:var(--text-low);margin-top:14px;letter-spacing:-.02em}
+
+/* ---------- buttons ---------- */
+
+.btn,button:not([class]){display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  min-height:44px;padding:0 22px;border-radius:999px;border:1.5px solid transparent;
+  font-size:17px;font-weight:500;line-height:1;text-decoration:none;cursor:pointer;white-space:nowrap;
+  transition:background-color .15s,opacity .15s}
+.btn.primary,button:not([class]){background:var(--inv-bg);color:var(--inv-fg);border-color:var(--inv-bg)}
+.btn.primary:hover,button:not([class]):hover{background:var(--g12);border-color:var(--g12)}
+.btn.secondary{background:transparent;color:var(--text);border-color:var(--text)}
+.btn.secondary:hover{background:var(--el)}
+.btn.quiet{background:transparent;color:var(--text);padding:0 10px;text-decoration:underline;text-underline-offset:4px;text-decoration-thickness:1px}
+.btn.quiet:hover{text-decoration-thickness:2px}
+.btn.small{min-height:36px;padding:0 16px;font-size:15px}
+.btn:disabled,button:disabled{opacity:.4;cursor:not-allowed}
+.htmx-request.btn,.htmx-request .btn,.htmx-request button{opacity:.55;pointer-events:none}
+.actions{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+form.inline{display:inline-flex}
+
+/* ---------- forms ---------- */
+
+.field{display:grid;gap:6px;margin-bottom:20px;max-width:440px}
+.field label,.label{font-size:15px;font-weight:600}
+:where(input:not([type="radio"]):not([type="checkbox"]):not([type="hidden"]),select,textarea){
+  width:100%;min-height:48px;padding:0 14px;border-radius:12px;border:1px solid var(--line-int);
+  background:var(--app);font-size:17px;transition:border-color .15s}
+textarea{padding:12px 14px;min-height:96px}
+input::placeholder,textarea::placeholder{color:var(--text-low)}
+input:focus,select:focus,textarea:focus{border-color:var(--text)}
+input:read-only{background:var(--tile);color:var(--text-low)}
+input[type="radio"],input[type="checkbox"]{width:20px;height:20px;accent-color:var(--text)}
+.hint{font-size:14px;color:var(--text-low)}
+.field.bad input,.field.bad select{border:2px solid var(--text)}
+.error-text{display:flex;gap:8px;align-items:baseline;font-size:15px;font-weight:500}
+.error-text::before{content:"!";flex:none;display:inline-grid;place-items:center;width:18px;height:18px;
+  border-radius:50%;background:var(--inv-bg);color:var(--inv-fg);font-size:12px;font-weight:700;transform:translateY(2px)}
+.form-row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+.form-row .field{margin-bottom:0;flex:1 1 220px}
+
+/* The question box: one wide rounded field with its button inside the right edge. */
+.ask{position:relative;max-width:640px}
+.ask input:not([type="hidden"]){min-height:60px;border-radius:18px;padding:0 128px 0 20px;font-size:19px;background:var(--tile);border-color:transparent}
+.ask input:focus{border-color:var(--text);background:var(--app)}
+.ask .btn,.ask button{position:absolute;right:8px;top:8px;min-height:44px}
+
+/* ---------- tiles and lists ---------- */
+
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+.tile{background:var(--tile);border-radius:22px;padding:28px}
+a.tile{display:flex;flex-direction:column;gap:6px;min-height:190px;color:var(--text);text-decoration:none;transition:background-color .15s}
+a.tile:hover{background:var(--el)}
+.tile h3{font-size:24px;letter-spacing:-.02em}
+.tile .tel{color:var(--text-low)}
+.tile.root{padding:20px 20px 24px}
+.tile + .list{margin-top:12px}
+.tile .state{margin-top:auto;padding-top:20px}
+.tile.add{background:transparent;border:1.5px dashed var(--line-strong)}
+
+.list{list-style:none;margin:0;padding:0;background:var(--surface);border-radius:16px;overflow:hidden}
+.list > li,.list > .row{position:relative;display:flex;align-items:center;gap:14px;min-height:56px;padding:12px 20px;flex-wrap:wrap}
+.list > li + li::before,.list > .row + .row::before{content:"";position:absolute;top:0;left:20px;right:0;border-top:1px solid var(--line)}
+.list .grow{flex:1 1 200px;min-width:0}
+.list .sub{display:block;font-size:14px;color:var(--text-low)}
+.list form{margin:0}
+.list .form-row{flex:1 1 260px;flex-wrap:nowrap}
+.list .form-row .field{flex:1 1 auto;min-width:0}
+
+/* The menu: options as disclosure rows inside a .list, children nested one step in. */
+.menu details > summary{list-style:none;display:flex;align-items:center;gap:14px;min-height:56px;padding:12px 20px;cursor:pointer}
+.menu details > summary::-webkit-details-marker{display:none}
+.menu details > summary::after{content:"";flex:none;width:8px;height:8px;margin-left:auto;
+  border-right:1.5px solid var(--text-low);border-bottom:1.5px solid var(--text-low);transform:rotate(-45deg);transition:transform .2s}
+.menu details[open] > summary::after{transform:rotate(45deg)}
+.menu details > summary:hover{background:var(--el)}
+.menu .label{flex:1 1 auto;min-width:0;font-weight:500}
+.menu .label::first-letter{text-transform:uppercase}
+.menu .body{padding:4px 20px 20px 66px;display:grid;gap:14px}
+.list.menu > li{display:block;padding:0;min-height:0}
+.menu .menu{background:var(--app)}
+.menu .menu .menu{background:var(--surface)}
+
+/* ---------- state, notices, notes ---------- */
+
+.state{display:inline-flex;align-items:center;gap:8px;font-size:15px;color:var(--text-low);white-space:nowrap}
+.state::before{content:"";flex:none;width:9px;height:9px;border-radius:50%;border:1.5px solid var(--text-dim)}
+.state.on{color:var(--text)}
+.state.on::before{background:var(--text);border-color:var(--text)}
+.state.warn{color:var(--text)}
+.state.warn::before{border-color:var(--text);background:linear-gradient(90deg,var(--text) 50%,transparent 50%)}
+
+.notice{background:var(--tile);border-radius:14px;padding:14px 18px;margin:16px 0;font-size:15px;max-width:none}
+.notice.strong{background:var(--inv-bg);color:var(--inv-fg)}
+.notice.strong a{color:var(--inv-fg)}
+.notice > :first-child{margin-top:0}
+.bar + .notice.strong,.budget{border-radius:0;margin:0;text-align:center;padding:12px var(--gutter)}
+
+.note{margin-top:96px;padding-top:24px;border-top:1px solid var(--line);color:var(--text-low);font-size:15px;line-height:1.6;max-width:62ch}
+
+/* ---------- keys: the one loud thing ---------- */
+
+.keys{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+.keys .then{font-size:15px;color:var(--text-low)}
+.key{display:inline-grid;place-items:center;flex:none;width:56px;height:56px;border-radius:14px;
+  background:var(--app);border:1px solid var(--line-int);box-shadow:inset 0 -3px 0 var(--el-hi);
+  font-size:26px;font-weight:600;line-height:1;letter-spacing:0;font-variant-numeric:tabular-nums;color:var(--text)}
+.key.lg{width:76px;height:76px;border-radius:20px;font-size:36px;box-shadow:inset 0 -4px 0 var(--el-hi)}
+.key.sm{width:32px;height:32px;border-radius:9px;font-size:16px;box-shadow:inset 0 -2px 0 var(--el-hi)}
+.key.lit{background:var(--inv-bg);color:var(--inv-fg);border-color:var(--inv-bg);box-shadow:none}
+
+.answer{display:grid;gap:14px;margin-top:24px;padding:28px;background:var(--tile);border-radius:22px;max-width:640px}
+.answer .keys{gap:14px}
+
+.keypad{display:grid;grid-template-columns:repeat(3,76px);gap:16px 26px;justify-content:center;margin:40px auto}
+.keypad .key{width:76px;height:76px;border-radius:50%;display:flex;flex-direction:column;justify-content:center;gap:3px;
+  font-size:32px;font-weight:500;box-shadow:none;background:var(--tile);border-color:transparent;transition:background-color .25s,color .25s}
+.keypad .key small{font-size:9.5px;font-weight:600;letter-spacing:.16em;color:var(--text-low);min-height:1em}
+.keypad .key.lit{background:var(--inv-bg);color:var(--inv-fg)}
+.keypad .key.lit small{color:var(--inv-fg)}
+
+/* ---------- transcript lines ---------- */
+
+.lines{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.lines > li{display:grid;grid-template-columns:32px minmax(0,1fr);column-gap:14px;align-items:start}
+.lines > li > .key{grid-column:1}
+.lines > li > .text{grid-column:2;color:var(--text-low);padding-top:3px}
+.lines > li > .key + .text{color:var(--text);font-weight:500}
+
+/* ---------- small controls ---------- */
+
+.seg{display:inline-flex;gap:2px;padding:3px;border-radius:999px;background:var(--el)}
+.seg button{min-height:38px;padding:0 18px;border:0;border-radius:999px;background:transparent;color:var(--text-low);font-size:15px;font-weight:500;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--app);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.14)}
+
+.meter{height:6px;max-width:320px;border-radius:999px;background:var(--el-hi);overflow:hidden;margin:20px 0}
+.meter span{display:block;height:100%;width:0;background:var(--text);transition:width .08s linear}
+
+audio{display:block;width:100%;max-width:360px;height:40px}
+
+/* ---------- small screens, motion ---------- */
+
+@media (max-width:734px){
+  :root{--gutter:16px}
+  .hero{padding-top:44px}
+  .display{font-size:40px;line-height:1.1}
+  .lede{font-size:19px}
+  h2{font-size:24px}
+  h2.num{font-size:22px}
+  .page > section,.page > .section{margin-top:56px}
+  .tile{padding:24px}
+  a.tile{min-height:150px}
+  .answer{padding:22px}
+  .keypad{grid-template-columns:repeat(3,68px);gap:14px 22px}
+  .keypad .key{width:68px;height:68px;font-size:28px}
+  .menu .body{padding-left:16px;padding-right:12px}
+  .note{margin-top:72px}
+}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
+
+/* ---------- fonts (Inter 4.1, OFL 1.1, fonts/Inter-OFL.txt; copied from Datum's src/fonts) ---------- */
+
+@font-face{font-family:'Inter';font-style:normal;font-weight:400;font-display:swap;src:url("fonts/Inter-Regular.woff2") format("woff2")}
+@font-face{font-family:'Inter';font-style:normal;font-weight:500;font-display:swap;src:url("fonts/Inter-Medium.woff2") format("woff2")}
+@font-face{font-family:'Inter';font-style:normal;font-weight:600;font-display:swap;src:url("fonts/Inter-SemiBold.woff2") format("woff2")}
+@font-face{font-family:'Inter';font-style:normal;font-weight:700;font-display:swap;src:url("fonts/Inter-Bold.woff2") format("woff2")}

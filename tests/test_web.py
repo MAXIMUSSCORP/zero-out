@@ -210,13 +210,55 @@ def test_company_page_renders_tree(env):
     r = env.client.get(f"/c/{env.cid}")
     assert r.status_code == 200 and "billing" in r.text and "<details" in r.text
     assert "/audio/" in r.text and f'/c/{env.cid}/connect' in r.text
-    assert "Map this number" in r.text
+    assert "Map automatically" in r.text and "Map this number" not in r.text
+    assert 'class="key sm">1</span>' in r.text and 'class="state on">Mapped' in r.text
+    assert 'class="list menu"' in r.text and "Map with my phone" not in r.text  # hosted: no phone mode
+
+
+def test_company_page_hero_and_back_link(env):
+    t = env.client.get(f"/c/{env.cid}").text
+    assert 'class="back" href="/"' in t and '<h1 class="display">Acme</h1>' in t
+    assert 'class="lede tel">+18005550000' in t and 'Not mapped yet' in t
+    assert "observation" not in t.lower() and "node" not in t.lower() and "branch" not in t.lower()
+
+
+def test_company_page_local_offers_phone_mode_first(env):
+    t = opened(env).get(f"/c/{env.cid}").text
+    assert f'class="btn primary" href="/c/{env.cid}/phone">Map with my phone' in t
+
+
+def test_company_page_shows_root_prompt_as_lines_and_unheard_options(env):
+    mapped(env)
+    env.conn.execute("UPDATE nodes SET prompt_text = 'For billing press 1. For an agent press 2.' WHERE path = ''")
+    env.conn.commit()
+    t = env.client.get(f"/c/{env.cid}").text
+    assert '<ol class="lines">' in t and t.count('class="key sm">2</span><span class="vh">: </span><span class="text">') >= 1
+    assert 'class="tile root"' in t
 
 
 def test_index_lists_companies(env):
     mapped(env)
     r = env.client.get("/")
     assert "Acme" in r.text and "+18005550000" in r.text
+    assert 'class="display">Skip the phone menu.' in r.text and 'class="tiles"' in r.text
+    assert f'<a class="tile" href="/c/{env.cid}">' in r.text and 'class="state on">Mapped' in r.text
+    assert "A US toll-free number, like 1-800-555-1234" in r.text and "node" not in r.text.lower()
+
+
+def test_index_tile_says_not_mapped_yet_for_an_unheard_company(env):
+    t = env.client.get("/").text
+    assert 'class="state off">Not mapped yet' in t
+
+
+def test_index_notice_when_token_factory_key_is_missing_only_locally(env):
+    env.st.tf_api_key = ""
+    msg = "Add your Token Factory key in"
+    t = opened(env).get("/").text
+    assert msg in t and 'href="/settings"' in t
+    env.st.tf_api_key = "k" * 8
+    assert msg not in opened(env).get("/").text
+    env.st.tf_api_key = ""
+    assert msg not in env.client.get("/").text  # hosted has no Settings page to send people to
 
 
 def test_timeline_lists_changes_newest_first(env):
@@ -228,7 +270,8 @@ def test_timeline_lists_changes_newest_first(env):
         )
     env.conn.commit()
     t = env.client.get(f"/c/{env.cid}").text
-    assert t.index("2026-02-01") < t.index("2026-01-01")
+    assert t.index("Feb 1, 2026") < t.index("Jan 1, 2026")
+    assert "2026-02-01" not in t
 
 
 def test_ask_not_mapped(env):
@@ -239,7 +282,8 @@ def test_ask_not_mapped(env):
 def test_ask_shows_path_and_explanation(env):
     mapped(env)
     t = env.client.post(f"/c/{env.cid}/ask", data={"question": "agent"}).text
-    assert "Press 2 for an agent" in t and "last confirmed" in t.lower()
+    assert "Press 2 for an agent" in t and "Confirmed " in t
+    assert '<div class="answer">' in t and 'class="key lg">2</span>' in t
 
 
 def test_ask_multi_key_path_arrows(env):
@@ -248,7 +292,7 @@ def test_ask_multi_key_path_arrows(env):
     env.conn.execute("INSERT INTO nodes (company_id, path, status) VALUES (?, '1.4', 'mapped')", (env.cid,))
     env.answer = {"path": "1.4", "explanation": "deep"}
     t = env.client.post(f"/c/{env.cid}/ask", data={"question": "q"}).text
-    assert "1 → 4" in t
+    assert 'class="key lg">1</span><span class="then">then</span><span class="key lg">4</span>' in t
 
 
 def test_ask_shows_stale_warning(env):
@@ -256,7 +300,8 @@ def test_ask_shows_stale_warning(env):
     env.conn.execute("UPDATE nodes SET status='stale' WHERE path='2'")
     env.conn.commit()
     t = env.client.post(f"/c/{env.cid}/ask", data={"question": "agent"}).text
-    assert "stale" in t.lower() or "out of date" in t.lower()
+    assert "This menu changed recently and is being checked again." in t
+    assert "stale" not in t.lower()
 
 
 def test_ask_unsure_shows_top_options(env):
@@ -533,7 +578,7 @@ def test_no_inline_script_and_local_htmx(env):
 def test_htmx_errors_are_200_partials(env):
     mapped(env)
     r = env.client.post("/verify/start", data={"phone": "123"}, headers=HX)
-    assert r.status_code == 200 and "<p>" in r.text
+    assert r.status_code == 200 and '<p class="error-text">' in r.text
     r = env.client.post("/verify/check", data={"phone": "4155550100", "code": "000000"}, headers=HX)
     assert r.status_code == 200 and "Wrong or expired code" in r.text
     r = env.client.post("/verify/start", data={"phone": "4155550100"}, headers={**HX, **EVIL})
@@ -813,6 +858,8 @@ def test_expired_page_is_open_to_all(env):
     r = local_client(env).get("/expired")
     assert r.status_code == 200
     assert "This Zero-Out session has ended. Open it again from the link that zeroout run printed" in r.text
+    assert '<h1 class="display">' in r.text and "Run zeroout run again for a new link." in r.text
+    assert 'href="/static/app.css"' in r.text and "/settings" not in r.text
     assert env.client.get("/expired").status_code == 404  # hosted mode
 
 
@@ -824,3 +871,133 @@ def test_guard_port_80_accepts_origin_without_port(env):
     url = f"/c/{env.cid}/connect"
     assert c.post(url, data={"path": "2"}, headers={"Origin": "http://127.0.0.1"}).status_code == 200
     assert c.post(url, data={"path": "2"}, headers={"Origin": "http://127.0.0.1:8000"}).status_code == 403
+
+
+def opened_no_owner(env):
+    c = local_client(env, owner=False)
+    assert c.get(f"/start?t={TOKEN}", follow_redirects=False).status_code == 303
+    return c
+
+
+def test_non_htmx_errors_are_full_pages_with_the_status_kept(env):
+    r = env.client.get("/c/999")
+    assert r.status_code == 404 and 'href="/static/app.css"' in r.text
+    assert '<h1 class="display">Not found</h1>' in r.text and 'class="back" href="/"' in r.text
+    assert 'class="note"' in r.text
+
+
+def test_non_htmx_conflict_links_back_to_the_company(env):
+    env.app.state.running.add(env.cid)
+    r = env.client.post(f"/c/{env.cid}/crawl")
+    assert r.status_code == 409 and "Already mapping this company" in r.text
+    assert f'class="back" href="/c/{env.cid}"' in r.text and "<h1 class=\"display\">Already in progress" in r.text
+
+
+def test_non_htmx_error_message_stays_escaped(env):
+    env.connect.exc = ValueError("<script>alert(1)</script>")  # connect puts the error's text in the detail
+    r = opened(env).post(f"/c/{env.cid}/connect", data={"path": "2"}, headers={"Origin": LOCAL})
+    assert r.status_code == 400 and "&lt;script&gt;alert(1)&lt;/script&gt;" in r.text
+    assert "<script>alert(1)" not in r.text and 'href="/static/app.css"' in r.text
+
+
+def test_huge_company_id_in_a_refused_request_stays_a_403_page(env):
+    r = env.client.post("/c/99999999999999999999/crawl", headers=EVIL)
+    assert r.status_code == 403 and 'class="back" href="/"' in r.text
+    r = env.client.post(f"/c/{10**30}/connect", data={"path": "2"})
+    assert r.status_code in (403, 404) and "<html" in r.text
+
+
+def test_htmx_errors_keep_their_partials(env):
+    r = env.client.post("/verify/check", data={"phone": "4155550100", "code": "000000"}, headers=HX)
+    assert r.status_code == 200 and r.text.startswith('<p class="error-text">') and "<html" not in r.text
+
+
+def test_connect_result_is_a_full_page_for_a_form_post(env):
+    c = opened(env)
+    r = c.post(f"/c/{env.cid}/connect", data={"path": "2.1"}, headers={"Origin": LOCAL})
+    assert r.status_code == 200 and "Calling you now. Pick up to be connected." in r.text
+    assert 'href="/static/app.css"' in r.text and f'class="back" href="/c/{env.cid}"' in r.text
+    c.app.state.running.clear()
+    h = c.post(f"/c/{env.cid}/connect", data={"path": "2.1"}, headers={"Origin": LOCAL, **HX})
+    assert h.status_code == 200 and "<html" not in h.text
+
+
+def test_option_rows_carry_a_hidden_separator_after_the_key(env):
+    mapped(env)
+    env.conn.execute("UPDATE nodes SET prompt_text = 'For billing press 1.' WHERE path = ''")
+    env.conn.commit()
+    t = env.client.get(f"/c/{env.cid}").text
+    assert '<span class="key sm">1</span><span class="vh">: </span><span class="text">' in t
+    env.answer = {"path": None, "explanation": "?"}
+    a = env.client.post(f"/c/{env.cid}/ask", data={"question": "zzz"}).text
+    assert '<span class="vh">: </span>' in a
+
+
+def test_when_filter_renders_a_plain_date_and_leaves_odd_values_alone():
+    assert web.when("2026-10-25T22:10:05+00:00") == "Oct 25, 2026"
+    assert web.when("2026-10-01") == "Oct 1, 2026"
+    assert web.when("2026-02-01 08:00:00") == "Feb 1, 2026"
+    assert web.when("<b>soon</b>") == "<b>soon</b>" and web.when(None) == "" and web.when("") == ""
+
+
+def test_confirmed_dates_are_plain_on_the_page_and_in_answers(env):
+    mapped(env)
+    env.conn.execute("UPDATE nodes SET last_confirmed = '2026-10-25T22:10:05+00:00' WHERE path = '1'")
+    env.conn.commit()
+    t = env.client.get(f"/c/{env.cid}").text
+    assert "Confirmed Oct 25, 2026" in t and "T22:10:05" not in t
+
+
+def test_connect_needs_twilio_points_to_settings_when_local(env):
+    t = opened_no_owner(env).get(f"/c/{env.cid}").text
+    assert "Connect me needs Twilio. Add it in" in t and 'href="/settings"' in t
+    assert "zeroout setup" not in t
+
+
+def test_company_menu_root_is_one_block_with_the_options(env):
+    mapped(env)
+    t = env.client.get(f"/c/{env.cid}").text
+    assert 'class="tile root"' in t
+
+
+def test_phone_numbers_are_not_tabular_figures(env):
+    t = env.client.get("/").text
+    assert 'class="tel">+18005550000' in t
+
+
+def bare_app(env, **kw):
+    """An app with no injected probe, so it needs real Twilio keys to crawl."""
+    st = dataclasses.replace(env.st, **kw)
+    return web.create_app(st, env.conn, listen=env.menu.listen, same=YES), st
+
+
+def test_map_automatically_is_disabled_with_the_reason_when_twilio_is_missing(env):
+    app, _ = bare_app(env)
+    t = TestClient(app).get(f"/c/{env.cid}").text
+    assert re.search(r'<button class="btn secondary" disabled>Map automatically</button>', t)
+    assert '<span class="hint">Needs Twilio.</span>' in t and "/settings" not in t  # hosted
+
+
+def test_map_automatically_hint_links_to_settings_locally(env):
+    st = dataclasses.replace(env.st, owner_number="")
+    app = web.create_app(st, env.conn, listen=env.menu.listen, same=YES, local=web.LocalGuard(PORT, TOKEN))
+    c = TestClient(app, base_url=LOCAL)
+    c.get(f"/start?t={TOKEN}")
+    t = c.get(f"/c/{env.cid}").text
+    assert 'Needs Twilio. Add it in <a href="/settings">Settings</a>.' in t and "disabled>Map automatically" in t
+
+
+def test_map_automatically_is_offered_once_twilio_keys_are_set_even_after_start(env):
+    app, st = bare_app(env)
+    c = TestClient(app)
+    assert "disabled>Map automatically" in c.get(f"/c/{env.cid}").text
+    st.twilio_sid, st.twilio_token, st.twilio_from = "AC1", "tok", "+14155550100"
+    t = c.get(f"/c/{env.cid}").text
+    assert "disabled>Map automatically" not in t and "Needs Twilio." not in t
+
+
+def test_crawl_route_refuses_without_twilio_before_reaching_it(env):
+    app, _ = bare_app(env)
+    r = TestClient(app).post(f"/c/{env.cid}/crawl", follow_redirects=False)
+    assert r.status_code == 400 and "Needs Twilio." in r.text and app.state.running == set()
+    assert env.conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0

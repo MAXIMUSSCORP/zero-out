@@ -32,7 +32,7 @@ build-backend = "setuptools.build_meta"
 packages = ["zeroout"]
 
 [tool.setuptools.package-data]
-zeroout = ["templates/*.html", "static/*"]
+zeroout = ["templates/*.html", "static/*", "static/fonts/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

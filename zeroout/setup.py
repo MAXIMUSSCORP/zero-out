@@ -18,6 +18,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from http.client import InvalidURL
 from urllib.parse import urlparse
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -126,24 +127,53 @@ def _retry(env: Env, what: str) -> None:
 # ---------- Token Factory ----------
 
 
-def _list_models(env: Env, base: str, key: str) -> list[str]:
-    req = urllib.request.Request(base.rstrip("/") + "/models", headers={"Authorization": f"Bearer {key}"})
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """urllib copies the Authorization header to a redirect target, so a redirect would carry the key."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        try:
+            u = urlparse(newurl)
+            where = f"{u.scheme}://{u.hostname}" + (f":{u.port}" if u.port else "")
+        except ValueError:
+            where = "another address"
+        raise TfError(f"Token Factory redirected to {where}; use that address as the base URL.")
+
+
+def open_no_redirect(req: Any, timeout: float | None = None) -> Any:
+    return urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout)
+
+
+def list_models(http: Callable[..., Any], base: str, key: str) -> list[str]:
+    """The live /models call; also used by the Settings page, which has no Env."""
     try:
-        resp = env.http(req, timeout=20)
+        req = urllib.request.Request(base.rstrip("/") + "/models", headers={"Authorization": f"Bearer {key}"})
+        resp = http(req, timeout=20)
         try:
             body = resp.read()
         finally:
             getattr(resp, "close", lambda: None)()
+    except TfError:
+        raise
     except urllib.error.HTTPError as e:
         if e.code in (401, 403):
             raise TfError(f"Token Factory refused the key (HTTP {e.code}). Check it in the Token Factory console.", auth=True) from None
         raise TfError(f"Token Factory answered HTTP {e.code} at {base}.") from None
     except (urllib.error.URLError, OSError) as e:
         raise TfError(f"Could not reach Token Factory at {base}: {getattr(e, 'reason', e)}.") from None
+    except (InvalidURL, ValueError):
+        raise TfError(f"{base} is not an address Zero-Out can use. Check the base URL.") from None
     try:
         return [m["id"] for m in json.loads(body)["data"]]
     except (ValueError, KeyError, TypeError):
         raise TfError(f"{base} did not answer with a model list. Check the base URL.") from None
+
+
+def _list_models(env: Env, base: str, key: str) -> list[str]:
+    return list_models(env.http, base, key)
+
+
+def nemotron_ids(ids: list[str]) -> list[str]:
+    return [i for i in ids if "nemotron" in i.lower()]
 
 
 def _choose_model(env: Env, label: str, want: str, ids: list[str]) -> str:
@@ -151,7 +181,7 @@ def _choose_model(env: Env, label: str, want: str, ids: list[str]) -> str:
         say(env, "found", f"{label} model {want}")
         return want
     env.out(f"  {label} model {want} is not in your Token Factory list.")
-    close = [i for i in ids if "nemotron" in i.lower()]
+    close = nemotron_ids(ids)
     close = difflib.get_close_matches(want, close, n=8, cutoff=0) if close else []
     if not close:
         env.out("  No Nemotron model is listed for this key, so Zero-Out cannot run on it.")
@@ -162,8 +192,16 @@ def _choose_model(env: Env, label: str, want: str, ids: list[str]) -> str:
 
 
 def _base_ok(base: str) -> bool:
-    u = urlparse(base)
+    try:
+        u = urlparse(base)
+    except ValueError:
+        return False
     return bool(u.hostname) and (u.scheme == "https" or (u.scheme == "http" and u.hostname in ("localhost", "127.0.0.1")))
+
+
+def base_problem(base: str) -> str:
+    """A sentence when the base URL would send the key in the clear, else an empty string."""
+    return "" if _base_ok(base) else f"The base URL must start with https://, so the key is never sent in the clear. Got {base}."
 
 
 def step_token_factory(env: Env, cur: dict) -> dict:
@@ -175,9 +213,9 @@ def step_token_factory(env: Env, cur: dict) -> dict:
             continue
         while True:
             base = _prompt(env, "Base URL", cur.get("TF_BASE_URL") or DEFAULT_BASE)
-            if _base_ok(base):
+            if not base_problem(base):
                 break
-            env.out(f"  The base URL must start with https://, so the key is never sent in the clear. Got {base}.")
+            env.out(f"  {base_problem(base)}")
             cur = {**cur, "TF_BASE_URL": ""}
         try:
             ids = _list_models(env, base, key)
@@ -264,18 +302,33 @@ def _twilio_error(e: Exception) -> tuple[bool, str]:
     return False, f"Could not check with Twilio: {getattr(e, 'msg', None) or e}"
 
 
+def sid_problem(sid: str) -> str:
+    return "" if re.fullmatch(r"AC[0-9a-fA-F]{32}", sid) else f"An Account SID is AC followed by 32 hex characters. Got {len(sid)} characters."
+
+
+def fetch_account(factory: Callable[[str, str], Any], sid: str, token: str) -> tuple[Any, Any]:
+    """(client, account). Raises TwilioException or OSError when Twilio refuses or cannot be reached."""
+    client = factory(sid, token)
+    return client, client.api.v2010.accounts(sid).fetch()
+
+
+def request_validation(client: Any, e164: str) -> str:
+    """Asks Twilio to call the number; returns the code to type on its keypad."""
+    return client.validation_requests.create(phone_number=e164, friendly_name="Zero-Out").validation_code
+
+
 def _is_ready(client: Any, e164: str) -> bool:
     return bool(client.outgoing_caller_ids.list(phone_number=e164) or client.incoming_phone_numbers.list(phone_number=e164))
 
 
 def _verify_number(env: Env, client: Any, e164: str) -> bool:
     try:
-        req = client.validation_requests.create(phone_number=e164, friendly_name="Zero-Out")
+        code = request_validation(client, e164)
     except TwilioException as e:
         env.out(f"  {_twilio_error(e)[1]}")
         return False
     env.out("")
-    env.out(f"  Twilio is calling {e164} now. Answer and type this code on the keypad: {req.validation_code}")
+    env.out(f"  Twilio is calling {e164} now. Answer and type this code on the keypad: {code}")
     env.out("")
     start = env.clock()
     try:
@@ -299,14 +352,13 @@ def step_twilio(env: Env, cur: dict) -> dict:
         return off
     while True:
         sid = _prompt(env, "Account SID", cur.get("TWILIO_SID", ""))
-        if not re.fullmatch(r"AC[0-9a-fA-F]{32}", sid):
-            env.out(f"  An Account SID is AC followed by 32 hex characters. Got {len(sid)} characters.")
+        if sid_problem(sid):
+            env.out(f"  {sid_problem(sid)}")
             cur = {**cur, "TWILIO_SID": ""}
             continue
         token = _prompt(env, "Auth token", cur.get("TWILIO_TOKEN", ""), secret=True)
         try:
-            client = env.twilio(sid, token)
-            account = client.api.v2010.accounts(sid).fetch()
+            client, account = fetch_account(env.twilio, sid, token)
             break
         except (TwilioException, OSError) as e:
             auth, msg = _twilio_error(e)
@@ -351,17 +403,23 @@ def step_twilio(env: Env, cur: dict) -> dict:
 # ---------- limits, secret, file ----------
 
 
+def cap_problem(raw: str) -> str:
+    try:
+        cap = float(raw)
+        if math.isfinite(cap) and cap > 0:
+            return ""
+    except ValueError:
+        pass
+    return f"The daily cap must be a number above 0, like 5. Got {raw}."
+
+
 def step_limits(env: Env, cur: dict) -> dict:
     env.out("Limits")
     while True:
         raw = _prompt(env, "Daily spend cap in USD", cur.get("DAILY_CAP_USD") or "5")
-        try:
-            cap = float(raw)
-            if math.isfinite(cap) and cap > 0:
-                break
-        except ValueError:
-            pass
-        env.out(f"  The daily cap must be a number above 0, like 5. Got {raw}.")
+        if not cap_problem(raw):
+            break
+        env.out(f"  {cap_problem(raw)}")
     secret = cur.get("SESSION_SECRET", "")
     return {
         "DAILY_CAP_USD": raw,
@@ -399,7 +457,7 @@ def render(values: dict) -> str:
 
 def write_config(path: Path, text: str) -> None:
     """Temp file beside the target, created 0600 before any secret goes in, then renamed over it."""
-    path = Path(path)
+    path = Path(os.path.realpath(path))  # write through a symlink, so the link stays a link
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")  # mkstemp is 0600
     try:
@@ -484,7 +542,7 @@ def main(argv: list[str] | None = None) -> int:
         ask=input,
         secret=secret,
         out=print,
-        http=urllib.request.urlopen,
+        http=open_no_redirect,
         twilio=twilio,
         install=install,
         verify=hear._verify,

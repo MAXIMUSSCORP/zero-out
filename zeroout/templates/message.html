@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% set active = 'companies' %}
+{% block title %}{{ heading }} - Zero Out{% endblock %}
+{% block width %} narrow{% endblock %}
+{% block body %}
+<a class="back" href="{{ back_href }}">&larr; {{ back_label }}</a>
+<section class="hero">
+  <h1 class="display">{{ heading }}</h1>
+  <p class="lede">{{ message }}</p>
+</section>
+<p class="note">{{ note }}</p>
+{% endblock %}

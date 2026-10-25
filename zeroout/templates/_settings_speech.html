@@ -1,0 +1,19 @@
+{% from "_settings_macros.html" import result %}
+<section id="settings-speech" aria-labelledby="h-speech">
+  <div class="section-head"><h2 id="h-speech">Speech</h2>
+    <span class="state {{ 'on' if c.on else 'off' }}">{{ 'Installed' if c.on else 'Not set' }}</span></div>
+  <p class="hint">Menus are heard on this computer, so audio never leaves it.</p>
+{% if c.locked %}  <p class="hint">Set in your environment as ASR_MODEL_DIR; change it there.</p>{% endif %}
+  <form hx-post="/settings/speech" hx-target="#settings-speech" hx-swap="outerHTML">
+    <ul class="list">
+{% for m in c.choices %}
+      <li class="row"><input id="m-{{ m.id }}" type="radio" name="model" value="{{ m.id }}"{% if m.current %} checked{% endif %}{% if not m.installed or c.locked %} disabled{% endif %}>
+        <label class="grow" for="m-{{ m.id }}">{{ m.name }}<span class="sub">{{ m.note }}{% if not m.installed %} Not installed. Download it with zeroout setup.{% endif %}</span>{% if m.current %}<span class="hint wrap">Folder: {{ m.path }}</span>{% endif %}</label>
+        {% if m.current %}<span class="state on">In use</span>{% elif m.installed %}<span class="state off">Installed</span>{% else %}<span class="state off">Not installed</span>{% endif %}
+      </li>
+{% endfor %}
+    </ul>
+{% if not c.locked %}    <div class="actions"><button class="btn primary" type="submit">Use this model</button></div>{% endif %}
+  </form>
+  {{ result(c) }}
+</section>

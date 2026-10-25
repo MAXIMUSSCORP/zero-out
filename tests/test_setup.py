@@ -523,7 +523,6 @@ def test_next_command_names_home(tmp_path):
 def test_main_with_home_prints_home_in_next_line(tmp_path, monkeypatch, capsys):
     import getpass
     import shlex
-    import urllib.request
 
     home = tmp_path / "my home"  # a space, so the quoting is exercised
     monkeypatch.setenv("ZEROOUT_HOME", "")  # restored afterwards; main sets it for this run
@@ -532,7 +531,7 @@ def test_main_with_home_prints_home_in_next_line(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
     monkeypatch.setattr(getpass, "getpass", lambda prompt="": KEY)
     monkeypatch.setattr("sys.stdin", io.StringIO(""))  # not a tty, and no env key, so getpass is used
-    monkeypatch.setattr(urllib.request, "urlopen", Http(models_response(IDS)))
+    monkeypatch.setattr(S, "open_no_redirect", Http(models_response(IDS)))
     assert S.main(["--home", str(home), "--skip-model"]) == 0
     assert f"  next      ZEROOUT_HOME={shlex.quote(str(home))} zeroout run" in capsys.readouterr().out
     assert dotenv_values(home / "zeroout.env", interpolate=False)["TF_API_KEY"] == KEY

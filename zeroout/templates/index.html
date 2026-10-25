@@ -1,28 +1,56 @@
 {% extends "base.html" %}
+{% set active = 'companies' %}
 {% block body %}
-<p>Skip the phone menu. Pick a company, ask what you need, get the keys to press.</p>
-{% if error %}<div class="error">{{ error }}</div>{% endif %}
-<ul class="plain">
+<section class="hero">
+  <h1 class="display">Skip the phone menu.</h1>
+  <p class="lede">Find a company, say what you need, and see the keys to press.</p>
+</section>
+{% if error %}<div class="notice strong" role="alert">{{ error }}</div>{% endif %}
+{% if local and not tf_key_set %}<div class="notice" role="status">Add your Token Factory key in <a href="/settings">Settings</a> to read menus.</div>{% endif %}
+
+<section aria-labelledby="companies-h">
+  <div class="section-head"><h2 id="companies-h">Companies</h2></div>
+  <div class="tiles">
 {% for c in companies %}
-  <li><a href="/c/{{ c.id }}">{{ c.name }}</a> <span class="muted">{{ c.number }} &middot; {{ c.mapped }} mapped node{{ '' if c.mapped == 1 else 's' }}</span></li>
-{% else %}
-  <li class="muted">No companies yet.</li>
+    <a class="tile" href="/c/{{ c.id }}">
+      <h3>{{ c.name }}</h3>
+      <span class="tel">{{ c.number }}</span>
+      {% if c.mapped %}<span class="state on">Mapped &middot; {{ c.mapped }} option{{ '' if c.mapped == 1 else 's' }}</span>
+      {% else %}<span class="state off">Not mapped yet</span>{% endif %}
+    </a>
 {% endfor %}
-</ul>
+    <div class="tile add">
+      <h3>Add a company</h3>
+      <form method="post" action="/companies">
+        <div class="field">
+          <label for="add-name">Company name</label>
+          <input id="add-name" name="name" maxlength="100" required>
+        </div>
+        <div class="field">
+          <label for="add-number">Toll-free number</label>
+          <input id="add-number" name="number" inputmode="tel" required aria-describedby="add-number-hint">
+          <span class="hint" id="add-number-hint">A US toll-free number, like 1-800-555-1234</span>
+        </div>
+        <button>Add</button>
+      </form>
+    </div>
+  </div>
+{% if not companies %}
+  <p class="low">No companies yet. Add the first one above.</p>
+{% endif %}
+</section>
+
 {% if local %}
-<section>
-<h2>Community</h2>
-<form hx-post="/community/update" hx-target="#community" hx-swap="innerHTML"><button>Update from community</button></form>
-<div id="community" aria-live="polite"></div>
+<section aria-labelledby="community-h">
+  <div class="section-head">
+    <h2 id="community-h">Community</h2>
+    <p>Other people map menus too. Bring in what they shared.</p>
+  </div>
+  <form hx-post="/community/update" hx-target="#community" hx-swap="innerHTML"><button>Update from the community</button></form>
+  <div id="community" aria-live="polite"></div>
 </section>
 {% with oob=False %}{% include "_offers.html" %}{% endwith %}
 {% endif %}
-<section>
-<h2>Add a company</h2>
-<form method="post" action="/companies">
-  <input name="name" placeholder="Company name" maxlength="100" required><br>
-  <input name="number" placeholder="Toll-free number, e.g. 1-800-555-1234" required><br>
-  <button>Add</button>
-</form>
-</section>
+
+<p class="note">Zero-Out keeps one map of every phone menu it hears, so the next person does not call and wait. Pick a company above, or add one, and ask what you need.</p>
 {% endblock %}

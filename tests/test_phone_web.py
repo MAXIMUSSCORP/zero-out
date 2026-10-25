@@ -118,7 +118,7 @@ def test_hosted_404_for_all_routes(env, fake):
 
 def test_company_page_links_phone_mode_locally(env, fake):
     r = local_client(env).get(f"/c/{env.cid}")
-    assert f'href="/c/{env.cid}/phone"' in r.text and "Map this menu with my phone" in r.text
+    assert f'href="/c/{env.cid}/phone"' in r.text and "Map with my phone" in r.text
 
 
 def test_page_content_and_copy(env, fake):
@@ -128,7 +128,40 @@ def test_page_content_and_copy(env, fake):
     assert 'src="/static/phone.js"' in r.text and "<script>" not in r.text
     assert "Nebius Token Factory" in r.text and "the audio itself is never saved" in r.text
     assert "click Stop before you speak to them" in r.text
-    assert "Skip this branch" in r.text and "Keep" in r.text and "Discard" in r.text
+    assert "Skip this option" in r.text and "Keep" in r.text and "Discard" in r.text
+
+
+def test_page_ids_keypad_and_no_inline_style(env, fake):
+    t = local_client(env).get(f"/c/{env.cid}/phone").text
+    assert "<style" not in t and 'class="back"' in t and "Acme" in t
+    for i in ("next", "start", "stop", "skip", "status", "meter", "error", "message",
+              "heard-text", "options", "review", "keep", "discard"):
+        assert f'id="{i}"' in t, i
+    for a in ("data-has-step", "data-path", "data-keys", "data-press-now", "data-label", "data-company"):
+        assert a in t, a
+    assert t.count('data-key="') == 12 and "PQRS" in t and "WXYZ" in t
+    assert 'class="btn primary"' in t and 'id="error" class="notice strong"' in t
+    assert "<h1" in t and "Call again, press 9" in t and 'class="note"' in t
+
+
+def test_page_order_and_heard_hidden_at_load(env, fake):
+    t = local_client(env).get(f"/c/{env.cid}/phone").text
+    assert t.index('id="headline"') < t.index("on speaker") < t.index('id="keypad"') < t.index('id="next"')
+    assert t.index('id="start"') < t.index("click Stop before") < t.index("Nebius") < t.index('id="heard"')
+    assert '<section id="heard" hidden>' in t and "+18005550000" in t
+    assert "branch" not in t.lower() and "Skip this option" in t
+
+
+def test_page_lights_the_key_to_press_now(env, fake):
+    t = local_client(env).get(f"/c/{env.cid}/phone").text
+    assert t.count("key lit") == 2  # the brand cap in the bar and the keypad key
+    assert '<span class="key lit" data-key="9">' in t and '<span class="key" data-key="1">' in t
+
+
+def test_page_lights_nothing_when_there_is_no_step(env, fake):
+    fake.next_step = lambda *a, **k: None
+    t = local_client(env).get(f"/c/{env.cid}/phone").text
+    assert 'class="key lit" data-key' not in t and "Hang up" in t
 
 
 def test_page_unknown_company(env, fake):
@@ -150,7 +183,8 @@ def test_clip_raw_body_and_flags_pass_through_and_store_nothing(env, fake):
     assert j["message"] == "Check what was heard, then keep it or discard it."
     assert j["heard"] == {
         "outcome": "menu", "prompt_text": "press 1 for billing",
-        "options": [{"key": "1", "label": "billing"}, {"key": "2", "label": "<b>x</b>"}]}
+        "options": [{"key": "1", "label": "billing"}, {"key": "2", "label": "<b>x</b>"}],
+        "lines": [{"text": "press 1 for billing", "key": "1"}]}
     assert j["nonce"] and fake.kept == [] and name_of(env) == "Acme"
     assert env.conn.execute("SELECT COUNT(*) n FROM observations").fetchone()["n"] == 0
 
@@ -292,7 +326,7 @@ def test_discard(env, fake):
 def test_skip_adds_to_skip_set(env, fake):
     c = local_client(env)
     r = act(c, env, "skip", {"path": "9"})
-    assert r.json() == {"message": "Skipped that branch.", "next": None, "skipped": 1}
+    assert r.json() == {"message": "Skipped that option.", "next": None, "skipped": 1}
     assert "9" in fake.skips_seen[-1]
     assert act(c, env, "skip", {"path": "x"}).status_code == 400
 
@@ -303,7 +337,7 @@ def test_two_unusable_clips_auto_skip(env, fake):
     first = clip(c, env, path="3").json()
     assert first["next"]["path"] == "3" and "moved on" not in first["message"]
     second = clip(c, env, path="3").json()
-    assert second["message"].endswith("Zero-Out moved on from that branch after two tries.")
+    assert second["message"].endswith("Zero-Out moved on from that option after two tries.")
     assert "3" in fake.skips_seen[-1] and second["next"]["path"] == "9"
 
 
@@ -316,7 +350,7 @@ def test_kept_retry_results_auto_skip(env, fake):
         n = clip(c, env, path="3").json()["nonce"]
         out.append(act(c, env, "keep", {"nonce": n}).json())
     assert out[0]["next"]["path"] == "3" and "moved on" not in out[0]["message"]
-    assert out[1]["message"].endswith("Zero-Out moved on from that branch after two tries.")
+    assert out[1]["message"].endswith("Zero-Out moved on from that option after two tries.")
     assert "3" in fake.skips_seen[-1]
 
 
@@ -462,7 +496,7 @@ def test_disputed_keep_skips_the_path_at_once(env, fake):
     fake.result = "disputed"
     j = act(c, env, "keep", {"nonce": clip(c, env, path="3").json()["nonce"]}).json()
     assert "3" in fake.skips_seen[-1] and j["next"]["path"] != "3"
-    assert j["message"].endswith("Zero-Out moved on; an automatic call can check that branch later.")
+    assert j["message"].endswith("Zero-Out moved on; an automatic call can check that option later.")
     assert j["skipped"] == 1
 
 
@@ -480,5 +514,5 @@ def test_reloaded_page_says_branches_were_skipped(env, fake):
     assert "mapped as far as Zero-Out goes" in c.get(f"/c/{env.cid}/phone").text
     act(c, env, "skip", {"path": "9"})
     t = c.get(f"/c/{env.cid}/phone").text
-    assert "Every branch Zero-Out could reach is mapped or was skipped. Hang up." in t
+    assert "Every option Zero-Out could reach is mapped or was skipped. Hang up." in t
     assert "mapped as far as Zero-Out goes" not in t

@@ -270,7 +270,7 @@ def test_menu_clip_merges_and_points_at_first_option():
     out = keep(conn, cid, rid, "", menu(("1", "2")))
     assert out.outcome == "menu" and out.result == "mapped"
     assert [o.key for o in out.options] == ["1", "2"]
-    assert out.message == "Heard 2 options. This is new, so it is now in the tree."
+    assert out.message == "Heard 2 options. This is new, so it is now on the map."
     assert out.next == phone.Step("1", ["1"], "1", "opt1")
     node = db.get_node(conn, cid, "")
     assert (node["status"], node["source"]) == ("mapped", "phone")
@@ -291,7 +291,7 @@ def test_menu_confirmed_changed_and_undecided_messages():
     out = keep(conn, cid, rid, "", menu(("1", "3")))
     assert out.result == "changed"
     assert out.message == (
-        "Heard 2 options. It differs from what was heard before, so the branches below will be checked again.")
+        "Heard 2 options. It differs from what was heard before, so the options below will be checked again.")
 
 
 @pytest.mark.parametrize("outcome", ["human", "voicemail", "hold", "hangup", "needs_input", "speech_menu"])
@@ -341,7 +341,7 @@ def test_top_menu_path_works_on_a_company_without_a_root():
 
 def test_unknown_path_raises():
     conn, cid, rid = setup()
-    with pytest.raises(ValueError, match="That menu path is not in the tree."):
+    with pytest.raises(ValueError, match="That option is not on this company's map."):
         keep(conn, cid, rid, "7.7", menu())
     assert conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0] == 0
 

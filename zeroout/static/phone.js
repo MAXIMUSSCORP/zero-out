@@ -93,7 +93,7 @@
   function nextText(next, skipped) {
     if (!next) {
       return skipped > 0
-        ? 'Every branch Zero-Out could reach is mapped or was skipped. Hang up.'
+        ? 'Every option Zero-Out could reach is mapped or was skipped. Hang up.'
         : 'This menu is mapped as far as Zero-Out goes. Hang up.';
     }
     if (next.press_now) {
@@ -102,6 +102,49 @@
     if (!next.keys || !next.keys.length) return 'Call the number. Click Start listening when it answers.';
     return 'Hang up and call again. Press ' + next.keys.join(', then ') +
       ', waiting for each menu to finish. Click Start listening right after your last key.';
+  }
+
+  // What the page shows for a step: the key to light, the headline, and the heard lines as plain data.
+  function litKey(step) {
+    if (!step) return '';
+    if (step.press_now) return String(step.press_now);
+    return step.keys && step.keys.length ? String(step.keys[0]) : '';
+  }
+
+  function headlineText(next) {
+    if (!next) return 'Hang up';
+    if (next.press_now) return 'Press ' + next.press_now + ' now';
+    if (!next.keys || !next.keys.length) return 'Call the number';
+    return 'Call again, press ' + next.keys.join(', then ');
+  }
+
+  // heard.lines when the server sent them, else the whole prompt as one line.
+  function heardLines(text, lines) {
+    if (Array.isArray(lines) && lines.length) return lines;
+    return text ? [{ text: text, key: null }] : [];
+  }
+
+  // Fills a list with one li per line; a keyed line starts with a key cap. textContent only.
+  function renderLines(doc, list, lines) {
+    list.textContent = '';
+    (lines || []).forEach(function (ln) {
+      var li = doc.createElement('li');
+      if (ln.key) {
+        var cap = doc.createElement('span');
+        cap.className = 'key sm';
+        cap.textContent = ln.key;
+        li.appendChild(cap);
+        var sep = doc.createElement('span');
+        sep.className = 'vh';
+        sep.textContent = ': ';
+        li.appendChild(sep);
+      }
+      var t = doc.createElement('span');
+      t.className = 'text';
+      t.textContent = ln.text;
+      li.appendChild(t);
+      list.appendChild(li);
+    });
   }
 
   // The state transitions of one listen cycle, apart from the DOM so node can test them.
@@ -116,7 +159,7 @@
       if (ctl.busy) return;
       setBusy(true);
       ui.error('');
-      var path = ctl.current ? ctl.current.path : '';  // the branch this clip is for, fixed at the click
+      var path = ctl.current ? ctl.current.path : '';  // the option this clip is for, fixed at the click
       try {
         var rec;
         try {
@@ -174,7 +217,8 @@
 
   var api = {
     downsample: downsample, encodeWav: encodeWav, rms: rms, makeEndpointer: makeEndpointer,
-    nextText: nextText, makeController: makeController, EXPIRED_TEXT: EXPIRED_TEXT,
+    nextText: nextText, litKey: litKey, headlineText: headlineText,
+    heardLines: heardLines, renderLines: renderLines, makeController: makeController, EXPIRED_TEXT: EXPIRED_TEXT,
   };
   if (typeof window !== 'undefined') window.ZeroOutPhone = api;
   if (typeof module !== 'undefined') module.exports = api;
@@ -195,18 +239,24 @@
     errorEl.hidden = !text;
   }
 
+  var lastLines = null;  // heard.lines of the latest clip, kept by upload() for showHeard
+
+  function lightKeypad(step) {
+    var lit = litKey(step);
+    Array.prototype.forEach.call(document.querySelectorAll('#keypad .key'), function (k) {
+      k.classList.toggle('lit', lit !== '' && k.dataset.key === lit);
+    });
+  }
+
   function showHeard(message, text, options) {
     $('message').textContent = message || '';
-    var quote = $('heard-text');
-    quote.textContent = text || '';
-    quote.hidden = !text;
-    var list = $('options');
-    list.textContent = '';
-    (options || []).forEach(function (o) {
-      var li = document.createElement('li');
-      li.textContent = o.key + ': ' + o.label;
-      list.appendChild(li);
-    });
+    var list = $('heard-text');
+    renderLines(document, list, heardLines(text, text ? lastLines : null));
+    list.hidden = !text;
+    renderLines(document, $('options'), (options || []).map(function (o) {
+      return { key: o.key, text: o.label };
+    }));
+    $('heard').hidden = !(message || text || (options && options.length));
   }
 
   async function post(url, body, type) {
@@ -279,7 +329,10 @@
     upload: function (path, rec) {
       var wav = encodeWav(downsample(rec.samples, rec.rate, TARGET_RATE), Math.min(rec.rate, TARGET_RATE));
       var q = '?path=' + encodeURIComponent(path) + '&capped=' + (rec.capped ? 1 : 0) + '&sound=' + (rec.sound ? 1 : 0);
-      return post(base + '/clip' + q, wav, 'audio/wav');
+      return post(base + '/clip' + q, wav, 'audio/wav').then(function (data) {
+        lastLines = data.heard && data.heard.lines ? data.heard.lines : null;
+        return data;
+      });
     },
     decide: decide,
     send: function (name, payload) { return post(base + '/' + name, JSON.stringify(payload), 'application/json'); },
@@ -290,6 +343,8 @@
       heard: showHeard,
       next: function (step, skipped) {
         nextEl.textContent = nextText(step, skipped);
+        $('headline').textContent = headlineText(step);
+        lightKeypad(step);
         skipBtn.hidden = !step || !step.path;
       },
       review: function (on) { reviewEl.hidden = !on; },

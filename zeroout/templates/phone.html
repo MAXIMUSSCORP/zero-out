@@ -1,54 +1,57 @@
 {% extends "base.html" %}
+{% set active = 'companies' %}
 {% block title %}Phone in hand - {{ company.name }} - Zero Out{% endblock %}
+{% block width %} narrow{% endblock %}
 {% block body %}
-<style>
-.bignum { font-size: 2rem; font-weight: 600; letter-spacing: .02em; margin: .2rem 0; }
-.meter { height: .6rem; background: var(--line); border-radius: 4px; overflow: hidden; margin: .6rem 0; max-width: 22rem; }
-.meter span { display: block; height: 100%; width: 0; background: var(--accent); }
-#next { font-weight: 600; }
-button.stop { background: #fff; color: var(--fg); border-color: var(--fg); }
-</style>
-<h2>{{ company.name }}</h2>
-<p class="bignum">{{ company.number }}</p>
-<p>Call {{ company.number }} on your phone and put it on speaker next to this computer.
-Click Start listening when the company answers. Zero-Out stops by itself when the menu goes quiet.</p>
-<p class="muted">If a person answers, click Stop before you speak to them. Zero-Out keeps none of their words.</p>
+{% set lit = (step.press_now or (step.keys[0] if step.keys else '')) if step else '' %}
+<a class="back" href="/c/{{ company.id }}">&lsaquo; {{ company.name }}</a>
+<div class="hero">
+  <h1 id="headline" class="display">{% if not step %}Hang up{% elif step.press_now %}Press {{ step.press_now }} now{% elif step.keys %}Call again, press {{ step.keys | join(', then ') }}{% else %}Call the number{% endif %}</h1>
+  <p class="lede">Call <span class="tel">{{ company.number }}</span> on your phone, on speaker, next to this computer.</p>
+</div>
 
-<section>
-<h3>Next</h3>
-<p id="next" aria-live="polite"
+<div class="keypad" id="keypad" aria-hidden="true">
+{% for k, letters in [('1', ''), ('2', 'ABC'), ('3', 'DEF'), ('4', 'GHI'), ('5', 'JKL'), ('6', 'MNO'), ('7', 'PQRS'), ('8', 'TUV'), ('9', 'WXYZ'), ('*', ''), ('0', '+'), ('#', '')] %}
+  <span class="key{% if k == lit %} lit{% endif %}" data-key="{{ k }}">{{ k }}<small>{{ letters }}</small></span>
+{% endfor %}
+</div>
+
+<p id="next" class="lede" aria-live="polite"
    data-has-step="{{ 1 if step else 0 }}"
    data-path="{{ step.path if step else '' }}"
    data-keys="{{ step.keys | join(',') if step else '' }}"
    data-press-now="{{ step.press_now or '' if step else '' }}"
    data-label="{{ step.label if step else '' }}"
    data-company="{{ company.id }}">
-{% if not step and skipped %}Every branch Zero-Out could reach is mapped or was skipped. Hang up.
+{% if not step and skipped %}Every option Zero-Out could reach is mapped or was skipped. Hang up.
 {% elif not step %}This menu is mapped as far as Zero-Out goes. Hang up.
 {% elif step.press_now %}Press {{ step.press_now }} now ({{ step.label }}). Then click Start listening.
 {% elif step.keys %}Hang up and call again. Press {{ step.keys | join(', then ') }}, waiting for each menu to finish. Click Start listening right after your last key.
 {% else %}Call the number. Click Start listening when it answers.{% endif %}
 </p>
-<button id="skip" type="button" class="stop"{% if not step or not step.path %} hidden{% endif %}>Skip this branch</button>
-<p><button id="start" type="button">Start listening</button>
-<button id="stop" type="button" class="stop" hidden>Stop</button></p>
-<p class="muted">The words Zero-Out hears are sent to the language model on Nebius Token Factory to read the menu. You see them before anything is kept, and the audio itself is never saved.</p>
-<p id="status" aria-live="polite"></p>
+
+<div class="actions">
+  <button id="start" type="button" class="btn primary">Start listening</button>
+  <button id="stop" type="button" class="btn secondary" hidden>Stop</button>
+  <button id="skip" type="button" class="btn secondary"{% if not step or not step.path %} hidden{% endif %}>Skip this option</button>
+</div>
+<p class="notice">If a person answers, click Stop before you speak to them. Zero-Out keeps none of their words.</p>
+<p class="hint">The words Zero-Out hears are sent to the language model on Nebius Token Factory to read the menu. You see them before anything is kept, and the audio itself is never saved.</p>
+<p id="status" class="hint" aria-live="polite"></p>
 <div class="meter" id="meter" hidden><span></span></div>
-<div id="error" class="error" hidden></div>
+<div id="error" class="notice strong" role="alert" hidden></div>
+
+<section id="heard" hidden>
+  <h2>Heard</h2>
+  <p id="message" class="hint"></p>
+  <ol id="heard-text" class="lines" hidden></ol>
+  <ul id="options" class="lines"></ul>
+  <div id="review" class="actions" hidden>
+    <button id="keep" type="button" class="btn primary">Keep</button>
+    <button id="discard" type="button" class="btn secondary">Discard</button>
+  </div>
 </section>
 
-<section>
-<h3>Heard</h3>
-<p id="message" class="muted"></p>
-<blockquote id="heard-text" hidden></blockquote>
-<ul id="options" class="plain"></ul>
-<p id="review" hidden>
-<button id="keep" type="button">Keep</button>
-<button id="discard" type="button" class="stop">Discard</button>
-</p>
-</section>
-
-<p><a href="/c/{{ company.id }}">Back to {{ company.name }}</a></p>
+<p class="note">Zero-Out maps one menu at a time, from what you hear, so it never guesses a key. Nothing is kept until you press Keep, and a wrong clip costs nothing. Once the menu is mapped, Connect me presses these keys for you.</p>
 <script src="/static/phone.js" defer></script>
 {% endblock %}
