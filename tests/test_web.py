@@ -14,11 +14,13 @@ from zeroout.models import Observation, Option
 YES = lambda a, b: True
 SECRET = "s" * 48
 HX = {"HX-Request": "true"}
+from zeroout.listen import NO_MODEL_MSG
+
 EVIL = {"Origin": "http://evil.example"}
 
 
 def settings(tmp_path, cap=10.0):
-    return Settings("", "", "", "", "", "", "", "", "", cap, SECRET,
+    return Settings("", "", "", "", "", "", "", "", cap, SECRET,
                     audio_dir=str(tmp_path / "audio"), cookie_secure=False)
 
 
@@ -582,3 +584,57 @@ def test_tree_does_not_link_human_audio(env):
         "SELECT id FROM observations WHERE path='2' AND audio_url IS NOT NULL").fetchone()[0]
     page = env.client.get(f"/c/{env.cid}").text
     assert f"/audio/{human}\"" not in page and "/audio/" in page
+
+
+def real_listen_app(env, monkeypatch, load):
+    from zeroout import hear, listen as listen_mod
+    monkeypatch.setattr(hear, "load", load)
+    seen = []
+    monkeypatch.setattr(listen_mod, "listen", lambda s, w, **kw: seen.append(kw) or None)
+    probed = []
+    app = web.create_app(env.st, env.conn, probe=lambda *a: probed.append(a) or env.menu.probe(*a), same=YES)
+    return TestClient(app), seen, probed
+
+
+def test_crawl_refuses_before_any_call_when_speech_model_missing(env, monkeypatch):
+    def load(model_dir):
+        raise RuntimeError("no model in /srv/secret/folder")
+
+    c, _, probed = real_listen_app(env, monkeypatch, load)
+    r = c.post(f"/c/{env.cid}/crawl", follow_redirects=False)
+    assert r.status_code == 503 and NO_MODEL_MSG in r.text
+    assert "/srv/secret" not in r.text
+    assert probed == [] and env.cid not in c.app.state.running
+
+
+def test_real_listener_gets_the_recording_tail_as_expected(env, monkeypatch):
+    from zeroout.probe import TAIL_SECONDS
+    loaded = []
+    c, seen, _ = real_listen_app(env, monkeypatch, loaded.append)
+    c.post(f"/c/{env.cid}/crawl", follow_redirects=False)
+    assert loaded == [env.st.asr_model_dir]
+    assert seen and all(kw == {"expected": TAIL_SECONDS} for kw in seen)
+
+
+def test_injected_listen_skips_speech_model_check(env, monkeypatch):
+    from zeroout import hear
+    monkeypatch.setattr(hear, "load", lambda d: (_ for _ in ()).throw(RuntimeError("no")))
+    r = env.client.post(f"/c/{env.cid}/crawl", follow_redirects=False)
+    assert r.status_code == 303
+
+
+def test_cross_origin_post_rejected_on_crawl_ask_and_companies(env):
+    for url, data in (
+        (f"/c/{env.cid}/crawl", {}),
+        (f"/c/{env.cid}/ask", {"question": "talk to billing"}),
+        ("/companies", {"name": "Evil", "number": "+18005551234"}),
+    ):
+        assert env.client.post(url, data=data, headers=EVIL).status_code == 403, url
+    assert env.cid not in env.app.state.running
+    assert env.conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
+    assert env.conn.execute("SELECT COUNT(*) FROM companies").fetchone()[0] == 1
+
+
+def test_same_origin_crawl_still_allowed(env):
+    r = env.client.post(f"/c/{env.cid}/crawl", headers={"Origin": "http://testserver"}, follow_redirects=False)
+    assert r.status_code == 303

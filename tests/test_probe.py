@@ -28,7 +28,7 @@ def test_twiml_zero_pause_skipped_and_whole_seconds():
 
 
 def st():
-    return Settings("", "", "", "", "", "SID", "TOK", "+15550009999", "", 1.0, "")
+    return Settings("", "", "", "", "SID", "TOK", "+15550009999", "", 1.0, "")
 
 
 class FakeClient:

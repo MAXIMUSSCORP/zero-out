@@ -2,19 +2,20 @@
 
 A public, community-maintained map of US toll-free phone menus (IVRs). Browse a company's whole menu tree, ask "which buttons for X?", or press **Connect me** and get a call back once the company's hold queue is reached. Every crawl and every Connect me call feeds observations back into the shared tree, which shows confirmations, staleness and a change timeline.
 
-Built for the NVIDIA x Nebius Global AI Hackathon (Best Apps & Agents). Every model call is a runtime call to **Nebius Token Factory** running **NVIDIA Nemotron** open models.
+Built for the NVIDIA x Nebius Global AI Hackathon (Best Apps & Agents). Every model is an NVIDIA open model. Nemotron runs on **Nebius Token Factory**; speech recognition runs locally with NVIDIA **Parakeet**, because no Token Factory model takes audio.
 
 ## How it works
 
 Every call is a *path replay*: dial, wait for each prompt, press the next key, then record about 40 s. Audio is analysed after the call, not streamed. Crawling, verification and Connect me all use that one building block.
 
-| Model (on Token Factory) | Job | Where it's called |
+| Model | Job | Where it's called |
 |---|---|---|
-| Nemotron 3 Nano Omni (`MODEL_OMNI`) | Hears a recorded prompt and returns `{prompt_text, options[{key,label}], outcome, prompt_seconds}` | `zeroout/listen.py` → `listen()` |
-| Nemotron 3 Nano (`MODEL_NANO`) | Decides whether a re-heard prompt means the same as the stored one (confirm vs. changed) | `zeroout/tree.py` → `nano_same_meaning()` |
-| Nemotron 3 Super (`MODEL_SUPER`) | Answers "which buttons for X?" from the tree JSON; code then checks the path exists | `zeroout/ask.py` → `ask()` |
+| Parakeet TDT 0.6B v3 (local, `ASR_MODEL_DIR`) | Turns a recorded prompt into words with start and end times | `zeroout/hear.py` → `transcribe()` |
+| Nemotron 3 Nano (`MODEL_NANO`, Token Factory) | Reads the timed transcript and returns `{prompt_text, options[{key,label}], outcome, prompt_seconds}` | `zeroout/listen.py` → `listen()` |
+| Nemotron 3 Nano (`MODEL_NANO`, Token Factory) | Decides whether a re-heard prompt means the same as the stored one (confirm vs. changed) | `zeroout/tree.py` → `nano_same_meaning()` |
+| Nemotron 3 Super (`MODEL_SUPER`, Token Factory) | Answers "which buttons for X?" from the tree JSON; code then checks the path exists | `zeroout/ask.py` → `ask()` |
 
-All three go through one OpenAI-compatible client (`zeroout/llm.py` → `chat_json()`), pointed at `TF_BASE_URL`, using JSON mode. Invalid JSON gets one stricter retry, and a 429 honours `Retry-After`.
+Nano and Super go through one OpenAI-compatible client (`zeroout/llm.py` → `chat_json()`), pointed at `TF_BASE_URL`, using JSON mode. Invalid JSON gets one stricter retry, and a 429 honours `Retry-After`.
 
 **Merge rules** (`zeroout/tree.py`): a first observation maps a node and creates unexplored children. A same-meaning re-observation adds a confirmation. A different one marks the node `changed`, keeps the old observation, and marks its descendants `stale` for re-crawling. `invalid_input` adds 2 s to that node's timing correction and retries once. Nothing the model returns is guessed into the tree; unparseable output is dropped.
 
@@ -22,7 +23,8 @@ All three go through one OpenAI-compatible client (`zeroout/llm.py` → `chat_js
 zeroout/
   paths.py    number normalisation (vanity letters → digits), toll-free check, key timing
   probe.py    Twilio call: pauses + DTMF, record, download
-  listen.py   Omni audio → Observation
+  hear.py     Parakeet speech recognition → timed words
+  listen.py   timed transcript → Nano → Observation
   tree.py     merge rules, tree JSON
   crawl.py    breadth-first crawl within budget
   connect.py  Connect me: replay path in a conference, dial the verified user, stop recording on join
@@ -37,13 +39,14 @@ eval/         listen accuracy and coverage reports
 python -m venv .venv && . .venv/bin/activate
 pip install -e '.[dev]'
 cp .env.example .env    # fill in Token Factory and Twilio credentials and the model IDs
+python -c "import tarfile, urllib.request; p, _ = urllib.request.urlretrieve('https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2'); tarfile.open(p, 'r:bz2').extractall('models', filter='data')"   # Parakeet, ~470 MB download
 pytest                  # runs fully offline against a fake phone menu
 uvicorn zeroout.web:app --reload
 ```
 
 Crawl one company from the CLI (this places real calls and costs cents): `python -m zeroout.crawl --company-id 1 --max-calls 3`.
 
-Smoke-test Omni on a clip: `python -m zeroout.listen path/to/prompt.wav`.
+Smoke-test listening on a clip: `python -m zeroout.listen path/to/prompt.wav` prints the timed transcript Nano read, then the observation. `python -m zeroout.hear path/to/prompt.wav` prints the words alone.
 
 Docker: `docker build -t zero-out . && docker run -p 8000:8000 --env-file .env -v zeroout-data:/app/data zero-out`.
 

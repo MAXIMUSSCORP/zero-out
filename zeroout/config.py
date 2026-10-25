@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 class Settings:
     tf_api_key: str
     tf_base_url: str
-    model_omni: str
     model_nano: str
     model_super: str
     twilio_sid: str
@@ -23,6 +22,7 @@ class Settings:
     # Seconds added after a parent prompt before pressing the next key.
     key_margin: float = 1.5
     cookie_secure: bool = True
+    asr_model_dir: str = "models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
 
 
 def load_settings() -> Settings:
@@ -31,7 +31,6 @@ def load_settings() -> Settings:
     return Settings(
         tf_api_key=env("TF_API_KEY", ""),
         tf_base_url=env("TF_BASE_URL", ""),
-        model_omni=env("MODEL_OMNI", ""),
         model_nano=env("MODEL_NANO", ""),
         model_super=env("MODEL_SUPER", ""),
         twilio_sid=env("TWILIO_SID", ""),
@@ -45,4 +44,5 @@ def load_settings() -> Settings:
         audio_dir=env("AUDIO_DIR", "data/audio"),
         key_margin=float(env("KEY_MARGIN", "1.5")),
         cookie_secure=env("COOKIE_SECURE", "1").strip().lower() not in ("0", "false"),
+        asr_model_dir=env("ASR_MODEL_DIR", "models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"),
     )

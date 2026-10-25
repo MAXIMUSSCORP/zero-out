@@ -15,7 +15,7 @@ YES = lambda a, b: True
 
 
 def settings(tmp_path, cap=10.0):
-    return Settings("", "", "", "", "", "", "", "", "", cap, "", audio_dir=str(tmp_path / "audio"))
+    return Settings("", "", "", "", "", "", "", "", cap, "", audio_dir=str(tmp_path / "audio"))
 
 
 def menu():
@@ -427,3 +427,39 @@ def test_crawl_run_updates_hold_lock(tmp_path):
     fm = FakeMenu({"": Observation("hold on", [], "hold", 1.0)})
     crawl(Spy(conn), st, cid, fm.probe, fm.listen, YES, sleep=lambda s: None)
     assert seen and not any(seen)
+
+
+def test_cli_exits_with_sentence_before_any_call_when_model_missing(tmp_path, monkeypatch, capsys):
+    from zeroout import crawl as crawl_mod, hear
+
+    def load(model_dir):
+        raise RuntimeError("The speech model is missing. Run scripts/get_model.sh.")
+
+    st = settings(tmp_path)
+    placed = []
+    monkeypatch.setattr(hear, "load", load)
+    monkeypatch.setattr(crawl_mod, "load_settings", lambda: st)
+    monkeypatch.setattr(crawl_mod, "twilio_probe", lambda s: placed.append(s))
+    monkeypatch.setattr(crawl_mod, "connect", lambda p: placed.append(p))
+    with pytest.raises(SystemExit) as e:
+        crawl_mod.main(["--company-id", "1"])
+    assert "speech model is missing" in str(e.value)
+    assert placed == []
+
+
+def test_cli_passes_tail_seconds_as_expected_to_listen(tmp_path, monkeypatch):
+    from zeroout import crawl as crawl_mod, hear, listen as listen_mod
+    from zeroout.probe import TAIL_SECONDS
+
+    st = settings(tmp_path)
+    seen, listened = {}, []
+    monkeypatch.setattr(hear, "load", lambda d: None)
+    monkeypatch.setattr(crawl_mod, "load_settings", lambda: st)
+    monkeypatch.setattr(crawl_mod, "twilio_probe", lambda s: None)
+    monkeypatch.setattr(crawl_mod, "connect", lambda p: None)
+    monkeypatch.setattr(crawl_mod, "nano_same_meaning", lambda s: None)
+    monkeypatch.setattr(listen_mod, "listen", lambda s, w, **kw: listened.append(kw))
+    monkeypatch.setattr(crawl_mod, "crawl", lambda c, s, cid, probe, listen, same, budget: seen.update(listen=listen) or 7)
+    crawl_mod.main(["--company-id", "1"])
+    seen["listen"](b"wav")
+    assert listened == [{"expected": TAIL_SECONDS}]

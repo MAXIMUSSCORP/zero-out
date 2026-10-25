@@ -17,6 +17,8 @@ Zero-Out is a public, community-maintained map of company phone menus (IVRs), th
 
 **Hackathon compliance:** every model call is a runtime call to Nebius Token Factory using NVIDIA open models (Nemotron 3 Nano Omni, Nano and Super). The demo stays live until Dec 15.
 
+> **Changed 2026-10-25.** Nemotron 3 Nano Omni is not served on Token Factory and no Token Factory model takes audio. Speech is recognized locally by NVIDIA Parakeet, and Nemotron 3 Nano reads the timed transcript. See `2026-10-25-local-app-plan.md`.
+
 ## 2. Approach
 
 **Path replay, one call per menu node.** Each call dials, replays a known key path with measured waits between keys, then records what plays next. Audio is processed after the call; there is no live streaming. Crawling, path verification and Connect me all use this one building block.

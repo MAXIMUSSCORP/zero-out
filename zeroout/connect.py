@@ -230,12 +230,18 @@ def start_connect(
         raise ValueError("That path has not been mapped yet")
     if not can_spend(conn, settings):
         raise ValueError("Daily budget reached")
+    if listen is None:
+        from . import hear, listen as listen_mod
+        from .listen import NO_MODEL_MSG
+        try:
+            hear.load(settings.asr_model_dir)  # before anything is dialled
+        except RuntimeError as e:
+            log.warning("speech model check failed: %s", e)
+            raise ValueError(NO_MODEL_MSG)
+        listen = lambda w: listen_mod.listen(settings, w)
     if client is None:
         from twilio.rest import Client
         client = Client(settings.twilio_sid, settings.twilio_token)
-    if listen is None:
-        from . import listen as listen_mod
-        listen = lambda w: listen_mod.listen(settings, w)
     if same_meaning is None:
         same_meaning = nano_same_meaning(settings)
 

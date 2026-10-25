@@ -11,7 +11,7 @@ from .config import Settings, load_settings
 from .db import LOCK, connect, now, start_run
 from .models import Observation
 from .paths import build_path, press_times
-from .probe import CallFailed, Probe, twilio_probe
+from .probe import TAIL_SECONDS, CallFailed, Probe, twilio_probe
 from .segment import duration, tail
 from .tree import ensure_root, merge, nano_same_meaning, unexplored
 
@@ -128,18 +128,27 @@ def _save_run(conn: sqlite3.Connection, run_id: int, calls: int, minutes: float,
         conn.commit()
 
 
-if __name__ == "__main__":
+def main(argv: list[str] | None = None) -> None:
+    from . import hear
     from .listen import listen as real_listen
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--company-id", type=int, required=True)
     ap.add_argument("--max-calls", type=int, default=Budget().max_calls)
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
     s = load_settings()
+    try:
+        hear.load(s.asr_model_dir)  # before the first paid call
+    except RuntimeError as e:
+        raise SystemExit(str(e))
     c = connect(s.db_path)
     rid = crawl(
-        c, s, args.company_id, twilio_probe(s), lambda w: real_listen(s, w),
+        c, s, args.company_id, twilio_probe(s), lambda w: real_listen(s, w, expected=TAIL_SECONDS),
         nano_same_meaning(s), Budget(max_calls=args.max_calls),
     )
     print(f"run {rid} done")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import sqlite3
 import threading
@@ -22,6 +23,8 @@ from .config import Settings, load_settings
 from .crawl import crawl
 from .paths import is_toll_free, normalize_number
 from .tree import tree_json
+
+log = logging.getLogger(__name__)
 
 TEMPLATES = Path(__file__).parent / "templates"
 BUDGET_MSG = "Daily call budget reached, try again tomorrow"
@@ -170,7 +173,8 @@ def create_app(
         if listen is not None:
             return listen
         from .listen import listen as _listen
-        return lambda w: _listen(settings, w)
+        from .probe import TAIL_SECONDS
+        return lambda w: _listen(settings, w, expected=TAIL_SECONDS)
 
     def get_same():
         if same is not None:
@@ -281,6 +285,7 @@ def create_app(
 
     @app.post("/c/{cid}/ask", response_class=HTMLResponse)
     def ask_route(request: Request, cid: int, question: str = Form("")):
+        same_origin(request)
         company(cid)
         limited(ask_limit, request)
         ans = ask_question(conn, settings, cid, question[:MAX_QUESTION], chat=get_chat())
@@ -288,6 +293,7 @@ def create_app(
 
     @app.post("/companies")
     def add_company(request: Request, name: str = Form(""), number: str = Form("")):
+        same_origin(request)
         limited(company_limit, request)
         name = name.strip()
         if not name or len(name) > 100:
@@ -309,8 +315,17 @@ def create_app(
 
     @app.post("/c/{cid}/crawl")
     def crawl_route(request: Request, cid: int, tasks: BackgroundTasks):
+        same_origin(request)
         company(cid)
         limited(crawl_limit, request)
+        if listen is None:
+            from . import hear
+            from .listen import NO_MODEL_MSG
+            try:
+                hear.load(settings.asr_model_dir)  # before the first paid call
+            except RuntimeError as e:
+                log.warning("speech model check failed: %s", e)
+                raise HTTPException(503, NO_MODEL_MSG)
         with lock:
             if cid in app.state.running:
                 raise HTTPException(409, "Already mapping this company")

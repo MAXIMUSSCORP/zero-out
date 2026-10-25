@@ -9,6 +9,7 @@ from zeroout.config import Settings
 from zeroout import connect as connect_mod
 from zeroout.connect import RESERVE_MINUTES, _run_connect, ingest_connect_recording, start_connect
 from zeroout.crawl import crawl
+from zeroout.listen import NO_MODEL_MSG
 from zeroout.models import Observation, Option
 from zeroout.paths import build_path, press_times
 from zeroout.probe import ProbeResult
@@ -18,7 +19,7 @@ USER = "+14155550123"
 
 
 def settings(tmp_path):
-    return Settings("", "", "", "", "", "SID", "TOK", "+15550001111", "", 10.0, "", audio_dir=str(tmp_path / "audio"))
+    return Settings("", "", "", "", "SID", "TOK", "+15550001111", "", 10.0, "", audio_dir=str(tmp_path / "audio"))
 
 
 def fake_tree():
@@ -377,3 +378,29 @@ def test_start_connect_failed_dial_releases_reserve(tmp_path, monkeypatch):
     r = conn.execute("SELECT minutes, cost_usd, ended_at FROM runs WHERE kind = 'connect'").fetchone()
     assert r["minutes"] == 0 and r["cost_usd"] == 0 and r["ended_at"]
     assert FakeThread.started == []
+
+
+def test_start_connect_refuses_before_dialing_when_speech_model_missing(tmp_path, monkeypatch):
+    from zeroout import hear
+
+    def load(model_dir):
+        raise RuntimeError("no model in /srv/secret/folder")
+
+    monkeypatch.setattr(hear, "load", load)
+    conn, cid, s, menu = mapped(tmp_path)
+    client = FakeClient([], ["in-progress"])
+    with pytest.raises(ValueError) as e:
+        start_connect(conn, s, cid, "1", USER, client=client, same_meaning=YES)
+    assert str(e.value) == NO_MODEL_MSG and "/srv/secret" not in str(e.value)
+    assert client.created == []
+    assert conn.execute("SELECT COUNT(*) FROM runs WHERE kind = 'connect'").fetchone()[0] == 0
+
+
+def test_start_connect_with_real_listener_checks_model_once(tmp_path, monkeypatch):
+    from zeroout import hear
+    loaded = []
+    monkeypatch.setattr(hear, "load", loaded.append)
+    conn, cid, s, menu = mapped(tmp_path)
+    client = FakeClient([], ["in-progress"])
+    start_connect(conn, s, cid, "1", USER, client=client, same_meaning=YES)
+    assert loaded == [s.asr_model_dir]

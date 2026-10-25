@@ -29,3 +29,11 @@ class Observation:
 class Step:
     key: str
     wait: float
+
+
+@dataclass
+class Word:
+    """A recognized word and when it was spoken, in seconds from the start of the recording."""
+    text: str
+    start: float
+    end: float
