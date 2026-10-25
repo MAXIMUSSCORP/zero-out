@@ -5,14 +5,19 @@
 
   /* ---------- which section is current ---------- */
 
-  // items: [{id, top}] in page order, top being the section's distance from the viewport's top.
-  // The current one is the last whose top has crossed 30% of the viewport. At the bottom of the page the
-  // last one counts when its top is in view; atBottom is false while a click is scrolling, because a page
-  // that bottoms out would otherwise always say "last".
-  function pick(items, viewH, atBottom) {
+  // items: [{id, top}] in page order, top being the section's distance from the viewport's top; remaining is
+  // how far the page can still scroll. The current section is the last whose top is above an activation line.
+  // The line sits at 30% of the viewport, and over the last viewport of scrolling slides down to the bottom
+  // edge, so short sections at the end of a page take their turn instead of being skipped. y is how far the
+  // page has scrolled: on a page with less than a viewport to scroll the slide is measured over that shorter
+  // span, so it starts at 0 and the first section is current on load.
+  function pick(items, viewH, remaining, y) {
     if (!items || !items.length) return null;
-    if (atBottom && items[items.length - 1].top < viewH) return items[items.length - 1].id;
-    var line = viewH * 0.3, cur = items[0].id;
+    if (y === 0) return items[0].id;  // nothing scrolled yet, so the first section is the one being read
+    var left = Math.max(0, remaining);
+    var span = typeof y === 'number' ? Math.min(viewH, y + left) : viewH;
+    var slide = viewH > 0 && span > 0 ? Math.min(1, Math.max(0, 1 - left / span)) : 0;
+    var line = viewH * 0.3 + viewH * 0.7 * slide, cur = items[0].id;
     for (var i = 0; i < items.length; i++) if (items[i].top <= line) cur = items[i].id;
     return cur;
   }
@@ -81,11 +86,11 @@
         pin = stillPinned(pin, y);
         if (pin && !entries.some(function (e) { return e.id === pin.id && !e.li.hidden; })) pin = null;
         if (pin) { mark(pin.id); return; }
-        var atBottom = y > 0 && root.scrollHeight - (y + window.innerHeight) < 4;
+        var remaining = root.scrollHeight - (y + window.innerHeight);
         var items = entries.filter(function (e) { return !e.li.hidden; }).map(function (e) {
           return { id: e.id, top: target(e).getBoundingClientRect().top };
         });
-        mark(pick(items, window.innerHeight, atBottom));
+        mark(pick(items, window.innerHeight, remaining, y));
       } catch (e) { /* the links still work */ }
     }
 

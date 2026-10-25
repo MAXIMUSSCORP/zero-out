@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
-const { place } = createRequire(import.meta.url)('../../zeroout/static/pop.js');
+const { place, next } = createRequire(import.meta.url)('../../zeroout/static/pop.js');
 
 const view = { w: 1280, h: 800 };
 const size = { w: 320, h: 120 };
@@ -20,4 +20,39 @@ assert.deepEqual(place(btn(1200, 200), size, view), { top: 230, left: 1280 - 320
 assert.deepEqual(place(btn(2, 200), size, view), { top: 230, left: 16 });
 // a window narrower than the popover still keeps the left margin
 assert.equal(place(btn(100, 200), size, { w: 300, h: 800 }).left, 16);
+
+// ---------- hover, focus, click ----------
+const closed = { open: false, pinned: false };
+const run = (state, ...evs) => evs.reduce((st, ev) => ({ ...st, ...next(st, ev) }), state);
+// hovering schedules an open, which then opens; leaving schedules a close, which then closes
+assert.equal(next(closed, 'enter').act, 'schedule-open');
+assert.equal(next(closed, 'timer-open').act, 'open');
+let st = run(closed, 'enter', 'timer-open');
+assert.deepEqual([st.open, st.pinned], [true, false]);
+assert.equal(next(st, 'leave').act, 'schedule-close');
+assert.equal(next(st, 'enter').act, 'cancel', 'moving onto the popover keeps it open');
+st = run(st, 'leave', 'timer-close');
+assert.deepEqual([st.open, st.pinned], [false, false]);
+// leaving before the open timer fires cancels it
+assert.equal(next(closed, 'leave').act, 'cancel');
+// a click pins it, from closed or from hover-open; a pinned one ignores leave and the close timer
+st = run(closed, 'click');
+assert.deepEqual([st.open, st.pinned, st.act], [true, true, 'open']);
+assert.equal(next(st, 'leave').act, null);
+assert.equal(next(st, 'timer-close').act, null);
+st = run(closed, 'enter', 'timer-open', 'click');
+assert.deepEqual([st.open, st.pinned], [true, true]);
+// clicking a pinned one closes it
+st = run(st, 'click');
+assert.deepEqual([st.open, st.pinned, st.act], [false, false, 'close']);
+// keyboard focus opens it, blur closes it unless pinned
+st = run(closed, 'focus');
+assert.deepEqual([st.open, st.act], [true, 'open']);
+assert.equal(next(st, 'blur').act, 'close');
+assert.equal(next(run(st, 'click'), 'blur').act, null);
+// the browser closing it (Escape, a click away) resets everything
+st = run(closed, 'click', 'closed');
+assert.deepEqual([st.open, st.pinned], [false, false]);
+// unknown events change nothing
+assert.deepEqual(next(st, 'wat'), { open: false, pinned: false, act: null });
 console.log('ok');

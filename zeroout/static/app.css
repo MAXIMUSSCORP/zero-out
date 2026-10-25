@@ -83,7 +83,9 @@ pre.mono{background:var(--tile);border-radius:14px;padding:16px 18px;max-height:
 
 .page{max-width:calc(var(--page) + 2 * var(--gutter));margin:0 auto;padding:0 var(--gutter) 96px}
 .page.narrow{max-width:calc(var(--narrow) + 2 * var(--gutter))}
-.page > section,.page > .section{margin-top:72px}
+/* Sections are told apart by a hairline, centred in the space between them. The hero has none above it. */
+.page > section:not(.hero),.page > .section{margin-top:48px;padding-top:48px;border-top:1px solid var(--line)}
+.page > .hero + section:not(.hero){margin-top:24px}
 .section-head{display:grid;gap:6px;margin-bottom:20px}
 .section-head p{color:var(--text-low)}
 .back{display:inline-flex;align-items:center;gap:6px;margin-top:28px;font-size:15px;color:var(--text-low);text-decoration:none;min-height:44px}
@@ -289,7 +291,8 @@ audio{display:block;width:100%;max-width:360px;height:40px}
   .lede{font-size:19px}
   h2{font-size:24px}
   h2.num{font-size:22px}
-  .page > section,.page > .section{margin-top:56px}
+  .page > section:not(.hero),.page > .section{margin-top:36px;padding-top:36px}
+  .page > .hero + section:not(.hero){margin-top:16px}
   .tile{padding:24px}
   a.tile{min-height:150px}
   .answer{padding:22px}
