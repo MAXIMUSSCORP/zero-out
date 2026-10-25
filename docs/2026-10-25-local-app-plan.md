@@ -104,6 +104,21 @@ synthetic 19.7 s menu resampled to 8 kHz and round-tripped through mu-law:
   are Token Factory calls.
 - `ecc:code-reviewer` pass per phase, commits after the user confirms.
 
+## Done
+
+- Phase 1, 2026-10-25, commit 128dae2. 375 tests. Live: the 8 kHz test menu gives
+  options 1, 3, 4 and 9 with prompt_seconds 19.04 in about 7 s; silence gives hold
+  for a crawl tail and nothing for a Connect piece.
+
+## Carried into phase 2 (from the phase 1 security review)
+
+- Default `ASR_MODEL_DIR` is relative to the working directory; make it an
+  absolute per-user data folder that `zeroout setup` fills, and log it once.
+- `zeroout setup` downloads with the same pinned archive hash as the Dockerfile.
+- Add the English 110M model's per-file hashes to `hear.MODELS` when setup offers it.
+- Cap the bytes `probe._download` accepts.
+- A hashed lockfile for installs, and the Docker base image pinned by digest.
+
 ## Open
 
 - Community repo owner and name.
