@@ -3,6 +3,7 @@ import hmac
 import json
 import logging
 import re
+import secrets
 import sqlite3
 import threading
 import time
@@ -14,7 +15,8 @@ from urllib.parse import urlsplit
 from typing import Callable
 
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -46,6 +48,20 @@ CRAWL_USED_MSG = "This company was already mapped as much as allowed today"
 US_ONLY_MSG = "Only US phone numbers are supported"
 PRIVATE_OUTCOMES = ("human", "voicemail")
 SWEEP_EVERY = 1000
+PHONE_MAX_BYTES = 8 * 1024 * 1024
+PHONE_CLIPS_PER_HOUR = 240
+PHONE_UNREADABLE_MSG = "The recording could not be read. Try again."
+PHONE_FAILED_MSG = "Something went wrong hearing that clip."
+PHONE_KEEP_FAILED_MSG = "Something went wrong keeping that clip."
+PHONE_NO_MODEL_MSG = "The speech recognition model is not installed on this computer."
+PHONE_BUSY_MSG = "Still hearing the last clip."
+PHONE_CRAWLING_MSG = "Already mapping this company with automatic calls."
+PHONE_GONE_MSG = "That clip is no longer waiting. Record it again."
+PHONE_CHECK_MSG = "Check what was heard, then keep it or discard it."
+PHONE_MOVED_ON = " Zero-Out moved on from that branch after two tries."
+PHONE_DISPUTED = " Zero-Out moved on; an automatic call can check that branch later."
+PHONE_PENDING_SECONDS = 600
+PHONE_TOO_BIG_MSG = "That recording is too long. Stop sooner and try again."
 CSP = (
     "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; media-src 'self'; "
     "img-src 'self' data:; frame-ancestors 'none'; form-action 'self'"
@@ -210,6 +226,8 @@ def create_app(
         response.headers["Content-Security-Policy"] = CSP
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
+        if local is not None:
+            response.headers["Permissions-Policy"] = "microphone=(self)"
         return response
 
     templates = Jinja2Templates(directory=str(TEMPLATES))
@@ -218,6 +236,10 @@ def create_app(
     lock = threading.Lock()
     ask_limit, connect_limit, verify_limit = RateLimiter(20), RateLimiter(3), RateLimiter(5)
     phone_limit, crawl_limit, company_limit = RateLimiter(3), RateLimiter(3), RateLimiter(5)
+    clip_limit = RateLimiter(PHONE_CLIPS_PER_HOUR)
+    # Phone mode state lives here, keyed by (launch, company), never in the cookie.
+    ph: dict = {"runs": {}, "skip": {}, "fails": {}, "pending": {}, "busy": set()}
+    app.state.phone = ph
     lazy: dict[str, Callable] = {}
 
     def get_probe():
@@ -357,8 +379,242 @@ def create_app(
             verified=bool(request.session.get("phone")),
             owner=format_owner(settings.owner_number) if settings.owner_number else "",
             needs_twilio=not settings.owner_number and not settings.twilio_verify_sid,
-            running=cid in app.state.running,
+            running=cid in app.state.running, local=local is not None,
         )
+
+    @app.get("/c/{cid}/phone", response_class=HTMLResponse)
+    def phone_page(request: Request, cid: int):
+        if local is None:
+            raise HTTPException(404, "Not found")
+        from . import phone
+        c = company(cid)
+        skipped = frozenset(ph["skip"].get((local.launch, cid), ()))
+        return render(request, "phone.html", company=c, skipped=len(skipped),
+                      step=phone.next_step(conn, cid, None, skip=skipped))
+
+    def step_json(s) -> dict | None:
+        if s is None:
+            return None
+        return {"path": s.path, "keys": list(s.keys), "press_now": s.press_now, "label": s.label}
+
+    def phone_refuse_crawl(cid: int) -> None:
+        if cid in app.state.running:
+            raise HTTPException(409, PHONE_CRAWLING_MSG)
+
+    def unusable(key: tuple, path: str) -> bool:
+        """Counts a path that came back unusable; the second time it is skipped for good."""
+        with lock:
+            fails = ph["fails"].setdefault(key, {})
+            fails[path] = fails.get(path, 0) + 1
+            if fails[path] < 2 or path == "":  # the root is never given up on, or nothing is left to try
+                return False
+            ph["skip"].setdefault(key, set()).add(path)
+            return True
+
+    def with_skipped(key: tuple, body: dict) -> dict:
+        body["skipped"] = len(skip_set(key))
+        return body
+
+    def skip_set(key: tuple) -> frozenset:
+        with lock:
+            return frozenset(ph["skip"].get(key, ()))
+
+    def phone_run_id(key: tuple, cid: int, phone) -> int:
+        with lock:
+            rid = ph["runs"].get(key)
+        if rid is not None:
+            with db.LOCK:
+                alive = conn.execute(
+                    "SELECT 1 FROM runs WHERE id = ? AND company_id = ?", (rid, cid)).fetchone()
+            if alive is None:
+                rid = None
+        if rid is None:
+            rid = phone.start_phone_run(conn, cid)
+            with lock:
+                ph["runs"][key] = rid
+        return rid
+
+    async def read_raw(request: Request) -> bytes:
+        """Reads the raw body under a hard size cap, even when Content-Length is missing or wrong."""
+        try:
+            declared = int(request.headers.get("content-length", "0"))
+        except ValueError:
+            declared = 0
+        if declared > PHONE_MAX_BYTES:
+            raise HTTPException(413, PHONE_TOO_BIG_MSG)
+        body = bytearray()
+        async for chunk in request.stream():
+            body += chunk
+            if len(body) > PHONE_MAX_BYTES:
+                raise HTTPException(413, PHONE_TOO_BIG_MSG)
+        return bytes(body)
+
+    async def phone_json(request: Request) -> dict:
+        try:
+            data = json.loads((await read_raw(request))[:4096] or b"null")
+        except ValueError:
+            data = None
+        if not isinstance(data, dict):
+            raise HTTPException(400, "That request could not be read.")
+        return data
+
+    def phone_entry(cid: int, nonce) -> tuple:
+        if not isinstance(nonce, str):
+            raise HTTPException(400, "That request could not be read.")
+        with lock:
+            e = ph["pending"].get(nonce)
+            if e is None or e[0] != local.launch or e[1] != cid or e[4] < time.monotonic():
+                raise HTTPException(404, PHONE_GONE_MSG)
+            del ph["pending"][nonce]
+        return e
+
+    def phone_guard(cid: int) -> None:
+        if local is None:
+            raise HTTPException(404, "Not found")
+        company(cid)
+
+    @app.post("/c/{cid}/phone/clip")
+    async def phone_clip(request: Request, cid: int, path: str = "", capped: str = "0", sound: str = "0"):
+        if local is None:
+            raise HTTPException(404, "Not found")
+        key = (local.launch, cid)
+        claimed = False
+        try:
+            same_origin(request)
+            company(cid)
+            if path and not PATH_RE.fullmatch(path):
+                raise HTTPException(400, "That menu path is not valid.")
+            if request.headers.get("content-type", "").split(";")[0].strip().lower() not in ("audio/wav", "audio/x-wav"):
+                raise HTTPException(415, "The recording must be sent as audio/wav.")
+            limited(clip_limit, request)
+            phone_refuse_crawl(cid)
+            if listen is None:
+                from . import hear
+                try:
+                    await run_in_threadpool(hear.load, settings.asr_model_dir)
+                except RuntimeError as e:
+                    log.warning("speech model check failed: %s", e)
+                    raise HTTPException(503, PHONE_NO_MODEL_MSG)
+            with lock:
+                if cid in ph["busy"]:
+                    raise HTTPException(409, PHONE_BUSY_MSG)
+                ph["busy"].add(cid)
+                claimed = True
+            wav = await read_raw(request)
+            from . import phone
+            try:
+                heard = await run_in_threadpool(
+                    phone.hear_clip, settings, wav, capped=capped == "1", sound=sound == "1")
+            except ValueError:
+                raise HTTPException(400, PHONE_UNREADABLE_MSG)
+            except RuntimeError as e:
+                log.warning("phone clip: %s", e)
+                raise HTTPException(503, PHONE_NO_MODEL_MSG)
+            except Exception:
+                log.exception("phone clip failed")
+                raise HTTPException(500, PHONE_FAILED_MSG)
+            if heard.obs is None:
+                moved = unusable(key, path)
+                nxt = (phone.next_step(conn, cid, path, skip=skip_set(key)) if moved
+                       else phone.retry_step(path))
+                return JSONResponse(with_skipped(key, {
+                    "message": heard.message + (PHONE_MOVED_ON if moved else ""),
+                    "heard": None, "next": step_json(nxt)}))
+            now = time.monotonic()
+            nonce = secrets.token_urlsafe(16)
+            with lock:
+                for k in [k for k, e in ph["pending"].items() if e[4] < now]:
+                    del ph["pending"][k]
+                ph["pending"][nonce] = (local.launch, cid, path, heard.obs, now + PHONE_PENDING_SECONDS)
+            o = heard.obs
+            return JSONResponse({
+                "message": PHONE_CHECK_MSG, "nonce": nonce,
+                "heard": {"outcome": o.outcome, "prompt_text": o.prompt_text,
+                          "options": [{"key": x.key, "label": x.label} for x in o.options]}})
+        except HTTPException as e:
+            return JSONResponse({"error": str(e.detail)}, status_code=e.status_code)
+        finally:
+            if claimed:
+                with lock:
+                    ph["busy"].discard(cid)
+
+    @app.post("/c/{cid}/phone/keep")
+    async def phone_keep(request: Request, cid: int):
+        try:
+            phone_guard(cid)
+            same_origin(request)
+            data = await phone_json(request)
+            phone_refuse_crawl(cid)
+            _, _, path, obs, _ = phone_entry(cid, data.get("nonce"))
+            from . import phone
+            key = (local.launch, cid)
+
+            def work():
+                rid = phone_run_id(key, cid, phone)
+                return phone.keep_clip(conn, cid, path, obs, run_id=rid, same_meaning=get_same())
+
+            try:
+                kept = await run_in_threadpool(work)
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+            except Exception:
+                log.exception("phone keep failed")
+                raise HTTPException(500, PHONE_KEEP_FAILED_MSG)
+            moved = disputed = False
+            if kept.result == "retry":
+                moved = unusable(key, path)
+            elif kept.result == "disputed" and path != "":
+                # The earlier version is kept, so asking again would offer the same branch forever.
+                with lock:
+                    ph["skip"].setdefault(key, set()).add(path)
+                disputed = True
+            else:
+                with lock:
+                    ph["fails"].get(key, {}).pop(path, None)
+            if kept.result == "retry" and not moved:
+                nxt = phone.retry_step(path)
+            else:
+                nxt = phone.next_step(conn, cid, path, skip=skip_set(key))
+            return JSONResponse(with_skipped(key, {
+                "outcome": kept.outcome,
+                "options": [{"key": o.key, "label": o.label} for o in kept.options],
+                "result": kept.result,
+                "message": kept.message + (PHONE_MOVED_ON if moved else PHONE_DISPUTED if disputed else ""),
+                "next": step_json(nxt)}))
+        except HTTPException as e:
+            return JSONResponse({"error": str(e.detail)}, status_code=e.status_code)
+
+    @app.post("/c/{cid}/phone/discard")
+    async def phone_discard(request: Request, cid: int):
+        try:
+            phone_guard(cid)
+            same_origin(request)
+            data = await phone_json(request)
+            _, _, path, _, _ = phone_entry(cid, data.get("nonce"))
+            from . import phone
+            return JSONResponse(with_skipped((local.launch, cid), {
+                "message": "Discarded. Nothing was kept.", "next": step_json(phone.retry_step(path))}))
+        except HTTPException as e:
+            return JSONResponse({"error": str(e.detail)}, status_code=e.status_code)
+
+    @app.post("/c/{cid}/phone/skip")
+    async def phone_skip(request: Request, cid: int):
+        try:
+            phone_guard(cid)
+            same_origin(request)
+            data = await phone_json(request)
+            path = data.get("path")
+            if not isinstance(path, str) or not PATH_RE.fullmatch(path):
+                raise HTTPException(400, "That menu path is not valid.")
+            from . import phone
+            key = (local.launch, cid)
+            with lock:
+                ph["skip"].setdefault(key, set()).add(path)
+            return JSONResponse(with_skipped(key, {
+                "message": "Skipped that branch.",
+                "next": step_json(phone.next_step(conn, cid, path, skip=skip_set(key)))}))
+        except HTTPException as e:
+            return JSONResponse({"error": str(e.detail)}, status_code=e.status_code)
 
     @app.post("/c/{cid}/ask", response_class=HTMLResponse)
     def ask_route(request: Request, cid: int, question: str = Form("")):

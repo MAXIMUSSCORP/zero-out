@@ -20,8 +20,19 @@ zeroout run
 - Settings go in a per-user file that only you can read: `~/.config/zeroout/zeroout.env` on Linux, `~/Library/Application Support/zeroout/zeroout.env` on macOS, and `%APPDATA%\zeroout\zeroout.env` on Windows.
 - Data (the database, recordings and the speech model) goes in `~/.local/share/zeroout` on Linux, the same Application Support folder on macOS, and `%LOCALAPPDATA%\zeroout` on Windows. Set `ZEROOUT_HOME` to keep everything in one folder instead.
 - `zeroout setup` downloads the speech model, and you choose one of two. Parakeet v3 is about 470 MB, covers 25 languages including Spanish, and is recommended. Parakeet 110M is about 100 MB, English only, and less accurate. Both are checked against pinned SHA-256 hashes.
-- Twilio is optional. Without it, mapping menus with your own phone on speaker is coming soon. See [Twilio and your own number](#twilio-and-your-own-number).
+- Twilio is optional. Without it, you can map a menu with your own phone instead. See [Map a menu with your own phone](#map-a-menu-with-your-own-phone), and [Twilio and your own number](#twilio-and-your-own-number) for the calls that need it.
 - The install from git uses the newest compatible dependencies. The Docker image installs from `requirements.lock` with every package hash checked.
+
+## Map a menu with your own phone
+
+This needs no Twilio account. It works in the local app only.
+
+1. Run `zeroout run` and open a company page. Click **Map this menu with my phone**.
+2. Call the company on your own phone, on speaker, with the computer next to you. When it answers, click **Start listening**.
+3. Zero-Out records through the computer's microphone and stops by itself when the menu goes quiet. Your browser asks for microphone permission the first time.
+4. It shows the options it heard, then tells you what to press next, such as "Press 1 now", or which keys to press after you call again for another branch.
+
+The microphone audio is never saved. If a person or a voicemail answers, none of their words are kept.
 
 ## Twilio and your own number
 
@@ -31,7 +42,7 @@ You don't buy a Twilio number. Setup verifies your own phone number as your call
 
 Twilio bills per minute. A trial account can only call numbers you have verified, so the account must be upgraded before Zero-Out can call companies.
 
-Without Twilio, mapping menus with your own phone on speaker is coming soon.
+Without Twilio, you can still map menus with your own phone. See [Map a menu with your own phone](#map-a-menu-with-your-own-phone).
 
 ## How it works
 
@@ -57,6 +68,7 @@ zeroout/
   tree.py     merge rules, tree JSON
   crawl.py    breadth-first crawl within budget
   connect.py  Connect me: replay path in a conference, dial the verified user, stop recording on join
+  phone.py    phone in hand: take a clip, merge it, say what to press next
   ask.py      grounded Q&A
   web.py      FastAPI + Jinja + HTMX site and JSON API
 eval/         listen accuracy and coverage reports

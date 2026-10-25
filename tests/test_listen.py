@@ -9,7 +9,7 @@ import openai
 
 from zeroout.config import Settings
 from zeroout.config import load_settings
-from zeroout.listen import Line, lines, listen, parse_observation, transcript
+from zeroout.listen import Line, hear_words, lines, listen, parse_observation, transcript
 from zeroout.llm import chat_json
 from zeroout.models import OUTCOMES, Observation, Option, Word
 
@@ -505,3 +505,37 @@ def test_chat_json_client_has_timeout_60(monkeypatch):
     monkeypatch.setattr(openai, "OpenAI", Fake)
     assert chat_json(make_settings(), "m", MSGS) is None
     assert seen["timeout"] == 60
+
+
+# --- hear_words ---
+
+def test_hear_words_with_no_speech_says_so_and_never_calls_the_model():
+    def chat(*a):
+        raise AssertionError("no model call without words")
+
+    assert hear_words(make_settings(), make_wav(), transcribe=fake_transcribe([]), chat=chat) == (False, None)
+
+
+def test_hear_words_returns_the_observation_when_speech_is_recognized():
+    heard, obs = hear_words(make_settings(), make_wav(), transcribe=fake_transcribe(words_of("For", "billing", "press", "1")),
+                            chat=lambda s, m, ms: raw())
+    assert heard is True and obs.outcome == "menu" and obs.options == [Option("1", "billing")]
+
+
+def test_hear_words_speech_but_unusable_model_answer():
+    t = fake_transcribe(words_of("For", "billing", "press", "1"))
+    assert hear_words(make_settings(), make_wav(), transcribe=t, chat=lambda s, m, ms: None) == (True, None)
+    assert hear_words(make_settings(), make_wav(), transcribe=t, chat=lambda s, m, ms: raw(outcome="robot")) == (True, None)
+
+
+def test_hear_words_menu_with_no_spoken_option_is_unusable():
+    t = fake_transcribe(words_of("Welcome", "to", "Acme"))
+    assert hear_words(make_settings(), make_wav(), transcribe=t, chat=lambda s, m, ms: raw()) == (True, None)
+
+
+def test_hear_words_propagates_transcribe_errors():
+    def boom(wav, d):
+        raise RuntimeError("model missing")
+
+    with pytest.raises(RuntimeError):
+        hear_words(make_settings(), make_wav(), transcribe=boom)

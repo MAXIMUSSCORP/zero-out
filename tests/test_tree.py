@@ -366,3 +366,132 @@ def test_timing_correction_capped_at_ten():
     for _ in range(8):
         m(conn, cid, rid, "1", inv)
     assert db.get_node(conn, cid, "1")["timing_correction"] == 10.0
+
+
+# --- source: phone clips never overwrite an automatic call ---
+
+def src(conn, cid, path):
+    return db.get_node(conn, cid, path)["source"]
+
+
+def mp(conn, cid, rid, path, obs, same=YES):
+    return tree.merge(conn, cid, path, obs, rid, None, same, source="phone")
+
+
+def test_phone_fills_unexplored_and_marks_source_phone():
+    conn, cid, rid = setup()
+    assert mp(conn, cid, rid, "", menu()) == "mapped"
+    assert src(conn, cid, "") == "phone"
+    assert src(conn, cid, "1") == "crawl"  # a child nobody has heard yet
+    assert conn.execute("SELECT audio_url FROM observations").fetchone()[0] is None
+
+
+def test_phone_confirms_crawl_and_keeps_crawl_source():
+    conn, cid, rid = setup()
+    m(conn, cid, rid, "", menu())
+    assert mp(conn, cid, rid, "", menu()) == "confirmed"
+    assert src(conn, cid, "") == "crawl"
+    assert db.get_node(conn, cid, "")["confirmations"] == 2
+
+
+def test_phone_disputing_crawl_changes_nothing_below():
+    conn, cid, rid = setup()
+    m(conn, cid, rid, "", menu())
+    m(conn, cid, rid, "1", menu(keys=("1",)))
+    before = db.get_node(conn, cid, "")["prompt_text"]
+    for obs, same in ((menu(keys=("1", "3")), YES), (menu(), NO), (menu(), lambda a, b: None)):
+        assert mp(conn, cid, rid, "", obs, same) == "disputed"
+    node = db.get_node(conn, cid, "")
+    assert (node["prompt_text"], node["status"], node["source"], node["confirmations"]) == (before, "mapped", "crawl", 1)
+    assert status(conn, cid, "1") == "mapped"
+    assert status(conn, cid, "2") == "unexplored"
+    rows = conn.execute("SELECT result FROM observations WHERE run_id=? ORDER BY id", (rid,)).fetchall()
+    assert [r[0] for r in rows][-3:] == ["disputed"] * 3
+
+
+def test_phone_overwrites_stale_crawl_node_and_phone_node():
+    conn, cid, rid = setup()
+    m(conn, cid, rid, "", menu())
+    conn.execute("UPDATE nodes SET status='stale' WHERE path=''")
+    assert mp(conn, cid, rid, "", menu(keys=("1", "3"))) == "changed"
+    assert src(conn, cid, "") == "phone"
+    assert mp(conn, cid, rid, "", menu(keys=("1", "4"))) == "changed"  # phone over phone
+
+
+def test_crawl_overwrites_a_phone_node_and_takes_the_source_back():
+    conn, cid, rid = setup()
+    mp(conn, cid, rid, "", menu())
+    assert m(conn, cid, rid, "", menu(keys=("1", "3"))) == "changed"
+    assert src(conn, cid, "") == "crawl"
+    mp(conn, cid, rid, "1", menu(keys=("1",)))
+    assert m(conn, cid, rid, "1", menu(keys=("1",))) == "confirmed"
+    assert src(conn, cid, "1") == "crawl"
+
+
+def test_phone_clip_cannot_delete_crawl_subtrees_below_a_phone_node():
+    conn, cid, rid = setup()
+    mp(conn, cid, rid, "", menu())  # the phone maps the root
+    m(conn, cid, rid, "2", menu(keys=("1",)))  # a crawl maps 2 ...
+    m(conn, cid, rid, "2.1", Observation("", [], "human", 0.0))  # ... and finds a person at 2.1
+    assert mp(conn, cid, rid, "", menu(keys=("1", "3"))) == "disputed"
+    assert status(conn, cid, "2") == "mapped" and status(conn, cid, "2.1") == "human"
+    root = db.get_node(conn, cid, "")
+    assert root["source"] == "phone" and "opt2" in root["options_json"] and status(conn, cid, "") == "mapped"
+    assert db.get_node(conn, cid, "3") is None
+    assert conn.execute("SELECT result FROM observations ORDER BY id DESC").fetchone()[0] == "disputed"
+
+
+def test_phone_clip_on_a_stale_crawl_node_cannot_delete_crawl_subtrees():
+    conn, cid, rid = setup()
+    m(conn, cid, rid, "", menu())
+    m(conn, cid, rid, "2", menu(keys=("1",)))
+    conn.execute("UPDATE nodes SET status='stale' WHERE path=''")
+    assert mp(conn, cid, rid, "", menu(keys=("1", "3"))) == "disputed"
+    assert status(conn, cid, "2") == "mapped" and src(conn, cid, "") == "crawl"
+
+
+def test_phone_change_is_still_allowed_when_nothing_crawled_lies_below():
+    conn, cid, rid = setup()
+    mp(conn, cid, rid, "", menu())
+    mp(conn, cid, rid, "2", menu(keys=("1",)))  # phone below phone
+    assert mp(conn, cid, rid, "", menu(keys=("1", "3"))) == "changed"
+    assert db.get_node(conn, cid, "2") is None
+    assert status(conn, cid, "3") == "unexplored"
+
+
+def test_phone_invalid_input_leaves_crawl_timing_alone():
+    conn, cid, rid = setup()
+    m(conn, cid, rid, "", menu())
+    m(conn, cid, rid, "1", menu(keys=("1",)))
+    bad = Observation("", [], "invalid_input", 0.0)
+    assert mp(conn, cid, rid, "1", bad) == "retry"
+    assert (db.get_node(conn, cid, "1")["timing_correction"] or 0) == 0
+    assert m(conn, cid, rid, "1", bad) == "retry"  # a crawl's own invalid key still counts
+    assert db.get_node(conn, cid, "1")["timing_correction"] == 2.0
+
+
+def test_phone_invalid_input_on_a_missing_node_writes_nothing():
+    conn, cid, rid = setup()
+    assert mp(conn, cid, rid, "9", Observation("", [], "invalid_input", 0.0)) == "retry"
+    assert db.get_node(conn, cid, "9") is None
+
+
+def test_stale_crawl_descendant_still_protects_against_a_phone_key_change():
+    conn, cid, rid = setup()
+    mp(conn, cid, rid, "", menu())
+    m(conn, cid, rid, "2", menu(keys=("1",)))
+    conn.execute("UPDATE nodes SET status='stale' WHERE path='2'")
+    assert mp(conn, cid, rid, "", menu(keys=("1", "3"))) == "disputed"
+    assert status(conn, cid, "2") == "stale" and src(conn, cid, "2") == "crawl"
+    assert db.get_node(conn, cid, "3") is None
+
+
+def test_phone_same_keys_different_meaning_over_crawled_descendants_is_changed():
+    conn, cid, rid = setup()
+    mp(conn, cid, rid, "", menu())
+    m(conn, cid, rid, "2", menu(keys=("1",)))
+    m(conn, cid, rid, "2.1", Observation("", [], "human", 0.0))
+    assert mp(conn, cid, rid, "", menu(text="A different greeting"), NO) == "changed"
+    assert status(conn, cid, "") == "changed"
+    assert status(conn, cid, "2") == "stale"  # marked for a re-check, not deleted
+    assert status(conn, cid, "2.1") == "human"  # human nodes are only re-checked by Connect me

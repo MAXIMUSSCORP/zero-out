@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Phone in hand - {{ company.name }} - Zero Out{% endblock %}
+{% block body %}
+<style>
+.bignum { font-size: 2rem; font-weight: 600; letter-spacing: .02em; margin: .2rem 0; }
+.meter { height: .6rem; background: var(--line); border-radius: 4px; overflow: hidden; margin: .6rem 0; max-width: 22rem; }
+.meter span { display: block; height: 100%; width: 0; background: var(--accent); }
+#next { font-weight: 600; }
+button.stop { background: #fff; color: var(--fg); border-color: var(--fg); }
+</style>
+<h2>{{ company.name }}</h2>
+<p class="bignum">{{ company.number }}</p>
+<p>Call {{ company.number }} on your phone and put it on speaker next to this computer.
+Click Start listening when the company answers. Zero-Out stops by itself when the menu goes quiet.</p>
+<p class="muted">If a person answers, click Stop before you speak to them. Zero-Out keeps none of their words.</p>
+
+<section>
+<h3>Next</h3>
+<p id="next" aria-live="polite"
+   data-has-step="{{ 1 if step else 0 }}"
+   data-path="{{ step.path if step else '' }}"
+   data-keys="{{ step.keys | join(',') if step else '' }}"
+   data-press-now="{{ step.press_now or '' if step else '' }}"
+   data-label="{{ step.label if step else '' }}"
+   data-company="{{ company.id }}">
+{% if not step and skipped %}Every branch Zero-Out could reach is mapped or was skipped. Hang up.
+{% elif not step %}This menu is mapped as far as Zero-Out goes. Hang up.
+{% elif step.press_now %}Press {{ step.press_now }} now ({{ step.label }}). Then click Start listening.
+{% elif step.keys %}Hang up and call again. Press {{ step.keys | join(', then ') }}, waiting for each menu to finish. Click Start listening right after your last key.
+{% else %}Call the number. Click Start listening when it answers.{% endif %}
+</p>
+<button id="skip" type="button" class="stop"{% if not step or not step.path %} hidden{% endif %}>Skip this branch</button>
+<p><button id="start" type="button">Start listening</button>
+<button id="stop" type="button" class="stop" hidden>Stop</button></p>
+<p class="muted">The words Zero-Out hears are sent to the language model on Nebius Token Factory to read the menu. You see them before anything is kept, and the audio itself is never saved.</p>
+<p id="status" aria-live="polite"></p>
+<div class="meter" id="meter" hidden><span></span></div>
+<div id="error" class="error" hidden></div>
+</section>
+
+<section>
+<h3>Heard</h3>
+<p id="message" class="muted"></p>
+<blockquote id="heard-text" hidden></blockquote>
+<ul id="options" class="plain"></ul>
+<p id="review" hidden>
+<button id="keep" type="button">Keep</button>
+<button id="discard" type="button" class="stop">Discard</button>
+</p>
+</section>
+
+<p><a href="/c/{{ company.id }}">Back to {{ company.name }}</a></p>
+<script src="/static/phone.js" defer></script>
+{% endblock %}

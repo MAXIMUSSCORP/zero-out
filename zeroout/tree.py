@@ -67,14 +67,29 @@ def _revise_descendants(conn: sqlite3.Connection, cid: int, path: str, kept: set
             )
 
 
+def _crawled_below(conn: sqlite3.Connection, cid: int, path: str, obs: Observation, node) -> bool:
+    """True when this change would alter keys over nodes an automatic call has mapped."""
+    kept = {o.key for o in obs.options} if obs.outcome == "menu" else set()
+    if kept == _keys(node["options_json"]):
+        return False
+    prefix = "" if path == "" else path + "."
+    rows = conn.execute(
+        "SELECT path FROM nodes WHERE company_id = ? AND path != '' AND source = 'crawl' "
+        "AND status != 'unexplored' AND substr(path, 1, ?) = ?",
+        (cid, len(prefix), prefix),
+    ).fetchall()
+    return bool(rows)
+
+
 def merge(
     conn: sqlite3.Connection,
     company_id: int,
     path: str,
     obs: Observation,
     run_id: int,
-    audio_path: str,
+    audio_path: str | None,
     same_meaning: Callable[[str, str], bool | None],
+    source: str = "crawl",
 ) -> str:
     # The model call runs before the lock so a slow answer never blocks the site.
     meaning: bool | None = None
@@ -89,7 +104,7 @@ def merge(
         meaning = same_meaning(node["prompt_text"] or "", obs.prompt_text)
     with db.LOCK:
         try:
-            result = _merge_locked(conn, company_id, path, obs, run_id, audio_path, meaning)
+            result = _merge_locked(conn, company_id, path, obs, run_id, audio_path, meaning, source)
         except BaseException:
             conn.rollback()
             raise
@@ -103,11 +118,14 @@ def _merge_locked(
     path: str,
     obs: Observation,
     run_id: int,
-    audio_path: str,
+    audio_path: str | None,
     meaning: bool | None,
+    source: str = "crawl",
 ) -> str:
     node = db.get_node(conn, company_id, path)
     if obs.outcome == "invalid_input":
+        if source == "phone":  # a person's own wrong key says nothing about the automatic replay's timing
+            return "retry"
         if node is None:
             conn.execute(
                 "INSERT INTO nodes (company_id, path, status, timing_correction) "
@@ -131,18 +149,37 @@ def _merge_locked(
     options_json = json.dumps([asdict(o) for o in obs.options])
     status = _implied_status(obs.outcome)
     result: str
+    # A phone clip never overwrites what an automatic call heard: it can only confirm it or dispute it.
+    protected = (
+        source == "phone" and node is not None and node["source"] == "crawl"
+        and node["status"] not in ("unexplored", "stale")
+    )
+    same_shape = (
+        node is not None and node["outcome"] == obs.outcome
+        and _keys(node["options_json"]) == {o.key for o in obs.options}
+    )
 
-    if node is None or node["status"] == "unexplored":
+    if protected and not (same_shape and meaning):
+        result = "disputed"
+    elif protected:
+        conn.execute(
+            "UPDATE nodes SET confirmations = confirmations + 1, last_confirmed = ?, "
+            "status = ? WHERE company_id = ? AND path = ?",
+            (ts, status, company_id, path),
+        )
+        result = "confirmed"
+    elif node is None or node["status"] == "unexplored":
         conn.execute(
             "INSERT INTO nodes (company_id, path, prompt_text, options_json, outcome, "
-            "prompt_seconds, status, confirmations, first_seen, last_confirmed) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?) "
+            "prompt_seconds, status, confirmations, first_seen, last_confirmed, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?) "
             "ON CONFLICT(company_id, path) DO UPDATE SET prompt_text=excluded.prompt_text, "
             "options_json=excluded.options_json, outcome=excluded.outcome, "
             "prompt_seconds=excluded.prompt_seconds, status=excluded.status, confirmations=1, "
-            "first_seen=excluded.first_seen, last_confirmed=excluded.last_confirmed",
+            "first_seen=excluded.first_seen, last_confirmed=excluded.last_confirmed, "
+            "source=excluded.source",
             (company_id, path, obs.prompt_text, options_json, obs.outcome,
-             obs.prompt_seconds, status, ts, ts),
+             obs.prompt_seconds, status, ts, ts, source),
         )
         if obs.outcome == "menu":
             _add_children(conn, company_id, path, obs)
@@ -160,16 +197,18 @@ def _merge_locked(
     ):
         conn.execute(
             "UPDATE nodes SET confirmations = confirmations + 1, last_confirmed = ?, "
-            "status = ? WHERE company_id = ? AND path = ?",
-            (ts, status, company_id, path),
+            "status = ?, source = ? WHERE company_id = ? AND path = ?",
+            (ts, status, source, company_id, path),
         )
         result = "confirmed"
+    elif source == "phone" and _crawled_below(conn, company_id, path, obs, node):
+        result = "disputed"
     else:
         conn.execute(
             "UPDATE nodes SET prompt_text = ?, options_json = ?, outcome = ?, "
-            "prompt_seconds = ?, status = 'changed', confirmations = 1, last_confirmed = ? "
-            "WHERE company_id = ? AND path = ?",
-            (obs.prompt_text, options_json, obs.outcome, obs.prompt_seconds, ts,
+            "prompt_seconds = ?, status = 'changed', confirmations = 1, last_confirmed = ?, "
+            "source = ? WHERE company_id = ? AND path = ?",
+            (obs.prompt_text, options_json, obs.outcome, obs.prompt_seconds, ts, source,
              company_id, path),
         )
         kept = {o.key for o in obs.options} if obs.outcome == "menu" else set()

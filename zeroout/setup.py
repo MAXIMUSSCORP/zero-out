@@ -293,7 +293,7 @@ def _verify_number(env: Env, client: Any, e164: str) -> bool:
 def step_twilio(env: Env, cur: dict) -> dict:
     off = {"TWILIO_SID": "", "TWILIO_TOKEN": "", "TWILIO_FROM": "", "OWNER_NUMBER": "", "TWILIO_VERIFY_SID": ""}
     env.out("Twilio (optional)")
-    env.out("  Without Twilio you map menus with your own phone on speaker (coming soon).")
+    env.out("  Without Twilio you map menus with your own phone on speaker: open a company in zeroout run and choose Map this menu with my phone.")
     env.out("  With Twilio, Zero-Out dials, crawls and Connect me runs automatically, billed by Twilio per minute.")
     if not _yes(env, "Set up Twilio?", bool(cur.get("TWILIO_SID"))):
         return off

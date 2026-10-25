@@ -150,6 +150,37 @@ def _spoken(key: str, offered: set[str]) -> bool:
     return any(f in offered for f in SPOKEN[key])
 
 
+def hear_words(
+    settings: Settings,
+    wav: bytes,
+    *,
+    transcribe: Callable[[bytes, str], list[Word]] | None = None,
+    chat: Callable[..., dict | None] = chat_json,
+) -> tuple[bool, Observation | None]:
+    """(speech_recognized, observation). The observation is None when nothing usable came of it."""
+    if transcribe is None:
+        from .hear import transcribe
+    words = transcribe(wav, settings.asr_model_dir)
+    if not words:
+        return False, None
+    seconds = duration(wav)
+    items = lines(words)
+    text = transcript(items, seconds)
+    messages = [
+        {"role": "system", "content": PROMPT},
+        {"role": "user", "content": f"<transcript>\n{text}\n</transcript>"},
+    ]
+    obs = parse_observation(chat(settings, settings.model_nano, messages))
+    if obs is None:
+        return True, None
+    near = _offered(items)
+    obs.options = [o for o in obs.options if _spoken(o.key, near)]
+    if obs.outcome == "menu" and not obs.options:
+        return True, None
+    snap = next((w.end for w in words if obs.prompt_seconds - SNAP_SLACK <= w.end <= MAX_PROMPT_SECONDS), None)
+    return True, obs if snap is None else dataclasses.replace(obs, prompt_seconds=snap)
+
+
 def listen(
     settings: Settings,
     wav: bytes,
@@ -159,29 +190,10 @@ def listen(
     expected: float | None = None,
 ) -> Observation | None:
     """expected is how long the recording should run; silence for most of it means hold."""
-    if transcribe is None:
-        from .hear import transcribe
-    words = transcribe(wav, settings.asr_model_dir)
-    seconds = duration(wav)
-    if not words:
-        if expected is None:
-            return None
-        return Observation("", [], "hold" if seconds >= HOLD_SHARE * expected else "hangup", 0.0)
-    items = lines(words)
-    text = transcript(items, seconds)
-    messages = [
-        {"role": "system", "content": PROMPT},
-        {"role": "user", "content": f"<transcript>\n{text}\n</transcript>"},
-    ]
-    obs = parse_observation(chat(settings, settings.model_nano, messages))
-    if obs is None:
-        return None
-    near = _offered(items)
-    obs.options = [o for o in obs.options if _spoken(o.key, near)]
-    if obs.outcome == "menu" and not obs.options:
-        return None
-    snap = next((w.end for w in words if obs.prompt_seconds - SNAP_SLACK <= w.end <= MAX_PROMPT_SECONDS), None)
-    return obs if snap is None else dataclasses.replace(obs, prompt_seconds=snap)
+    heard, obs = hear_words(settings, wav, transcribe=transcribe, chat=chat)
+    if heard or expected is None:
+        return obs
+    return Observation("", [], "hold" if duration(wav) >= HOLD_SHARE * expected else "hangup", 0.0)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@
 <form method="post" action="/c/{{ company.id }}/crawl">
   <button{% if running %} disabled{% endif %}>Map this number</button>
 </form>
+{% if local %}<p><a href="/c/{{ company.id }}/phone">Map this menu with my phone</a></p>{% endif %}
 
 <section>
 <h3>What do you need?</h3>
