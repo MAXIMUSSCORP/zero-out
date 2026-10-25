@@ -118,8 +118,24 @@ synthetic 19.7 s menu resampled to 8 kHz and round-tripped through mu-law:
   (per-user model folder, pinned download in setup, 110M hashes, 64 MB cap,
   hashed locks, digest-pinned image).
 
-## Carried into phase 3
+- Phase 3, 2026-10-25, commit 9763fd0. 634 Python tests and the node recorder
+  tests. Verified in real headless Chrome (Windows, driven over DevTools from a
+  fake microphone that starts mid-speech): the recorder stopped by itself about
+  5 s after the menu, the page showed the exact words for review, Keep merged
+  them with `source=phone` and no audio stored, and the next instruction was
+  "Press 1 now (billing questions)".
+  Design changes from review: a Keep or Discard step before anything is
+  saved; text kept only for menus, with digit runs and emails redacted; phone
+  clips never overwrite or delete crawl data and never change crawl timing.
 
+## Carried into phase 4
+
+- Recorder levels are fixed (sound above 0.01 RMS, quiet below 0.02). In a
+  room at or above 0.02 RMS of steady noise a clip runs to the 90 s cap (still
+  read correctly, only slower) and dead air reads as hold; between 0.01 and
+  0.02 dead air stops after 5 s as "nothing heard". Tune from real rooms.
+- Publish phone-sourced text only after a crawl confirms it or the person
+  reviewed it (they now always review before Keep); nodes carry `source`.
 - Twilio caller ID with no purchased number is documented by Twilio's Calls API
   ("a Twilio number or a Verified outgoing caller id"), but not yet tried on a
   real upgraded account; the first real crawl confirms it.
