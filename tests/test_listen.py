@@ -539,3 +539,59 @@ def test_hear_words_propagates_transcribe_errors():
 
     with pytest.raises(RuntimeError):
         hear_words(make_settings(), make_wav(), transcribe=boom)
+
+
+MENU_WORDS = ["Thank", "you", "for", "calling", "Acme.", "For", "billing", "press", "1.", "For", "sales", "press", "2."]
+
+
+def hear_menu(prompt_text, words=MENU_WORDS, **kw):
+    reply = raw(prompt_text=prompt_text, options=[{"key": "1", "label": "billing"}, {"key": "2", "label": "sales"}],
+                prompt_seconds=6.4, **kw)
+    return hear_words(make_settings(), make_wav(), transcribe=fake_transcribe(words_of(*words)),
+                      chat=lambda s, m, ms: reply)[1]
+
+
+def test_prompt_instruction_asks_for_every_sentence_unshortened():
+    from zeroout.listen import PROMPT
+    assert "copy every sentence" in PROMPT and "Do not shorten or summarize" in PROMPT
+
+
+def test_short_prompt_text_falls_back_to_the_transcript_words():
+    o = hear_menu("Thank you for calling Acme.")
+    assert o.prompt_text == " ".join(MENU_WORDS) and len(o.options) == 2
+
+
+def test_fallback_goes_through_clean_and_the_length_limit(monkeypatch):
+    import zeroout.listen as L
+    monkeypatch.setattr(L, "MAX_TEXT", 20)
+    assert len(hear_menu("Hi.").prompt_text) == 20
+
+
+def test_fallback_cleans_control_characters():
+    words = ["Press\x07", "1", "for", "billing", "and", "press", "2", "for", "sales."]
+    o = hear_menu("Press", words=words)
+    assert o.prompt_text == "Press 1 for billing and press 2 for sales."
+
+
+def test_prompt_text_covering_half_or_more_is_kept():
+    text = "Thank you for calling Acme. For billing press 1. For sales"
+    assert hear_menu(text).prompt_text == text
+
+
+def test_fallback_only_for_a_menu():
+    o = hear_menu("Thank you.", outcome="human")
+    assert o.prompt_text == ""
+    o = hear_menu("Please hold.", outcome="hold")
+    assert o.prompt_text == "Please hold."
+
+
+def test_fallback_ignores_a_repeat_after_the_menu_ended():
+    words = MENU_WORDS + MENU_WORDS
+    full = " ".join(MENU_WORDS)
+    assert hear_menu(full, words=words).prompt_text == full
+
+
+def test_no_fallback_when_the_menu_ends_inside_the_first_line():
+    words = [w.rstrip(".") for w in MENU_WORDS] * 2  # one long line, no sentence ends or gaps
+    first = " ".join(w.rstrip(".") for w in MENU_WORDS[:9])
+    assert hear_menu(first, words=words).prompt_text == first
