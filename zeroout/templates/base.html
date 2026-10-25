@@ -9,6 +9,8 @@
 <link rel="stylesheet" href="/static/app.css">
 <script src="/static/theme.js"></script>
 <script src="/static/htmx.min.js"></script>
+<script src="/static/pop.js" defer></script>
+{% if toc is defined and toc | length >= 2 %}<script src="/static/toc.js" defer></script>{% endif %}
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -22,6 +24,11 @@
   </div>
 </header>
 {% if budget_ok is defined and not budget_ok %}<div class="notice strong budget" role="status">Daily call budget reached. Calls start again tomorrow{% if local %}, or raise the cap in <a href="/settings">Settings</a>{% endif %}.</div>{% endif %}
+{% if toc is defined and toc | length >= 2 %}
+<nav class="toc{{ self.width() }}" aria-label="On this page"><ol>
+{% for t in toc %}  <li{% if t | length > 2 and t[2] %} hidden{% endif %}><a href="#{{ t[0] }}">{{ t[1] }}</a></li>
+{% endfor %}</ol></nav>
+{% endif %}
 <main id="main" class="page{% block width %}{% endblock %}">
 {% block body %}{% endblock %}
 </main>

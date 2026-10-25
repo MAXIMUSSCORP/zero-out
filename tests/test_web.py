@@ -1168,3 +1168,64 @@ def test_odd_stored_number_is_shown_as_it_is_and_escaped(env):
     env.conn.commit()
     t = env.client.get("/").text
     assert "&lt;b&gt;1&lt;/b&gt;" in t and "<b>1</b>" not in t
+
+
+def toc_of(html):
+    nav = re.search(r'<nav class="toc[^"]*" aria-label="On this page">(.*?)</nav>', html, re.S)
+    if nav is None:
+        return None
+    return re.findall(r'<a href="#([^"]+)">([^<]+)</a>', nav.group(1))
+
+
+def assert_toc_points_at_real_sections(html, names):
+    toc = toc_of(html)
+    assert [n for _, n in toc] == names
+    for id_, _ in toc:
+        assert f'id="{id_}"' in html, id_
+
+
+def test_company_page_toc_follows_the_sections(env):
+    assert_toc_points_at_real_sections(
+        env.client.get(f"/c/{env.cid}").text, ["Map", "Ask", "Menu", "Connect", "Changes"])  # hosted: no Share
+    assert_toc_points_at_real_sections(
+        opened(env).get(f"/c/{env.cid}").text, ["Map", "Ask", "Menu", "Connect", "Share", "Changes"])
+
+
+def test_home_toc_lists_community_only_locally(env):
+    assert_toc_points_at_real_sections(env.client.get("/").text, ["Companies", "Add"])
+    assert_toc_points_at_real_sections(opened(env).get("/").text, ["Companies", "Add", "Community"])
+
+
+def test_settings_toc_names_all_six_sections(env):
+    t = opened(env).get("/settings").text
+    assert_toc_points_at_real_sections(t, ["Model", "Phone", "Speech", "Spending", "Community", "Appearance"])
+    assert 'class="toc narrow"' in t
+
+
+def test_phone_toc_starts_with_heard_hidden(env):
+    t = opened(env).get(f"/c/{env.cid}/phone").text
+    assert_toc_points_at_real_sections(t, ["Call", "Heard"])
+    assert '<li hidden><a href="#heard">Heard</a>' in t and '<li><a href="#call">Call</a>' in t
+
+
+def test_pages_without_sections_have_no_toc(env):
+    assert toc_of(env.client.get("/c/999").text) is None  # a message page
+    assert toc_of(local_client(env).get("/expired").text) is None
+    assert 'toc.js' not in env.client.get("/c/999").text
+
+
+def test_toc_script_is_served_and_loaded_without_inline_script(env):
+    r = env.client.get("/static/toc.js")
+    assert r.status_code == 200 and "pick" in r.text
+    t = env.client.get(f"/c/{env.cid}").text
+    assert '<script src="/static/toc.js" defer></script>' in t
+    assert not re.search(r"<script(?![^>]*\bsrc=)", t)
+
+
+def test_pop_script_is_served_and_loaded_on_every_page_without_inline_script(env):
+    r = env.client.get("/static/pop.js")
+    assert r.status_code == 200 and "place" in r.text
+    for url in ("/", f"/c/{env.cid}"):
+        t = env.client.get(url).text
+        assert '<script src="/static/pop.js" defer></script>' in t
+        assert not re.search(r"<script(?![^>]*\bsrc=)", t)

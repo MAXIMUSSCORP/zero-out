@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% set active = 'companies' %}
+{% set toc = [('s-companies', 'Companies'), ('s-add', 'Add')] + ([('s-community', 'Community')] if local else []) %}
 {% block body %}
 <section class="hero">
   <h1 class="display">Skip the phone menu.</h1>
@@ -8,7 +9,7 @@
 {% if error %}<div class="notice strong" role="alert">{{ error }}</div>{% endif %}
 {% if local and not tf_key_set %}<div class="notice" role="status">Add your Token Factory key in <a href="/settings">Settings</a> to read menus.</div>{% endif %}
 
-<section aria-labelledby="companies-h">
+<section id="s-companies" aria-labelledby="companies-h">
   <div class="section-head"><h2 id="companies-h">Companies</h2></div>
   <div class="tiles">
 {% for c in companies %}
@@ -30,7 +31,7 @@
 {% endif %}
 </section>
 
-<section aria-labelledby="add-h">
+<section id="s-add" aria-labelledby="add-h">
   <div class="section-head"><h2 id="add-h">Add a company</h2></div>
   <form method="post" action="/companies" class="form-row add">
     <div class="field">
@@ -47,7 +48,7 @@
 </section>
 
 {% if local %}
-<section aria-labelledby="community-h">
+<section id="s-community" aria-labelledby="community-h">
   <div class="section-head">
     <h2 id="community-h">Community</h2>
     <p>Other people map menus too. Bring in what they shared.</p>

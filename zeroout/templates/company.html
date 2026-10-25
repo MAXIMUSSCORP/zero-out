@@ -1,10 +1,11 @@
 {% extends "base.html" %}
 {% set active = 'companies' %}
+{% set toc = [('s-map', 'Map'), ('s-ask', 'Ask'), ('s-menu', 'Menu'), ('s-connect', 'Connect')] + ([('s-share', 'Share')] if local else []) + [('s-changes', 'Changes')] %}
 {% block title %}{{ company.name }} - Zero Out{% endblock %}
 {% from "_quote.html" import quote %}
 {% block body %}
 <a class="back" href="/">&larr; Companies</a>
-<section class="hero">
+<section class="hero" id="s-map">
   <h1 class="display">{{ company.name }}</h1>
   <p class="lede tel">{{ company.number | tel }}</p>
   <div class="actions">
@@ -29,7 +30,7 @@
 <div class="notice" role="status">Some options lead to a voice assistant that listens for speech instead of keys.</div>
 {% endif %}
 
-<section aria-labelledby="ask-h">
+<section id="s-ask" aria-labelledby="ask-h">
   <div class="section-head"><div class="title"><h2 id="ask-h">What do you need?</h2>
     <button type="button" class="info" popovertarget="info-ask" aria-label="About What do you need?">?</button></div>
     <div popover id="info-ask" class="pop">Describe what you need in your own words and Zero-Out picks the keys from this company's map. It only uses keys that are on the map.</div></div>
@@ -41,7 +42,7 @@
   <div id="answer" aria-live="polite"></div>
 </section>
 
-<section aria-labelledby="menu-h">
+<section id="s-menu" aria-labelledby="menu-h">
   <div class="section-head"><div class="title"><h2 id="menu-h">The menu</h2>
     <button type="button" class="info" popovertarget="info-menu" aria-label="About The menu">?</button></div>
     <div popover id="info-menu" class="pop">What was heard at each step, and what each key leads to, with the date it was last confirmed.</div></div>
@@ -70,7 +71,7 @@
 {% endif %}
 </section>
 
-<section aria-labelledby="connect-h">
+<section id="s-connect" aria-labelledby="connect-h">
   <div class="section-head"><div class="title"><h2 id="connect-h">Connect me</h2>
     <button type="button" class="info" popovertarget="info-connect" aria-label="About Connect me">?</button></div>
     <div popover id="info-connect" class="pop">Zero-Out calls you, then calls the company, presses the keys and puts you through.</div></div>
@@ -93,7 +94,7 @@
 </section>
 
 {% if local %}
-<section aria-labelledby="share-h">
+<section id="s-share" aria-labelledby="share-h">
   <div class="section-head"><div class="title"><h2 id="share-h">Share with the community</h2>
     <button type="button" class="info" popovertarget="info-share" aria-label="About Share with the community">?</button></div>
     <div popover id="info-share" class="pop">Sharing sends the menu you mapped here, with personal data redacted, to the community's shared maps. It is public, and you see the exact file before anything is sent.</div></div>
@@ -103,7 +104,7 @@
 </section>
 {% endif %}
 
-<section aria-labelledby="changes-h">
+<section id="s-changes" aria-labelledby="changes-h">
   <div class="section-head"><h2 id="changes-h">Changes</h2></div>
 {% if changes %}
   <ul class="list">

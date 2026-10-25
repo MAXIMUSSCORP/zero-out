@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% set active = 'companies' %}
+{% set toc = [('call', 'Call'), ('heard', 'Heard', True)] %}
 {% block title %}Phone in hand - {{ company.name }} - Zero Out{% endblock %}
 {% block width %} narrow{% endblock %}
 {% block body %}
@@ -7,7 +8,7 @@
 {% set lab = lab[:1] | upper ~ lab[1:] %}
 {% set lit = (step.press_now or (step.keys[0] if step.keys else '')) if step else '' %}
 <a class="back" href="/c/{{ company.id }}">&lsaquo; {{ company.name }}</a>
-<div class="hero">
+<div class="hero" id="call">
   <h1 id="headline" class="display">{% if not step %}Everything reachable is mapped{% elif step.press_now %}Press {{ step.press_now }} now{% elif step.keys %}Map {{ step.keys | join(', then ') }}{% else %}Map the main menu{% endif %}</h1>
   <p id="lede" class="lede">{% if not step %}Call only if you want to check whether the menu has changed.{% elif step.keys and lab and not step.press_now %}{{ lab | truncate(90, True, '…', 0) }}{% else %}Call <span class="tel">{{ company.number | tel }}</span> on your phone, on speaker, next to this computer.{% endif %}</p>
 </div>
