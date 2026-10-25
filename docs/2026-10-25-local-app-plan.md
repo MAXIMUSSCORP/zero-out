@@ -128,6 +128,25 @@ synthetic 19.7 s menu resampled to 8 kHz and round-tripped through mu-law:
   saved; text kept only for menus, with digit runs and emails redacted; phone
   clips never overwrite or delete crawl data and never change crawl timing.
 
+- Phases 4 to 6, 2026-10-25, commit db3d8c3 (1055 tests) and the local trees
+  repo scaffold at /home/zaidv/zero-out-trees (not yet on GitHub). Verified
+  locally: exported files pass the trees repo's own stdlib checker and build
+  the site; a fresh install sees an unknown number only as an offer, and after
+  the user adds it the next update imports the tree as `source=community`.
+  Design changes from review: files are dates only with a random id each;
+  sharing names the gh account and says the PR is public and permanent;
+  community data only fills numbers the user added and never changes the
+  user's own crawl or phone data; the trees repo's CI runs on
+  `pull_request_target` with the base branch's checker and accepts exactly one
+  added file under trees/.
+
+## Before the trees repo goes public
+
+- Create MAXIMUSSCORP/zero-out-trees and push the scaffold; turn on the
+  settings listed in its CONTRIBUTING.md (branch protection requiring the
+  validate check and a code-owner review, Pages from Actions).
+- Replace the LICENSE notice with the official CC0-1.0 text.
+
 ## Carried into phase 4
 
 - Recorder levels are fixed (sound above 0.01 RMS, quiet below 0.02). In a
