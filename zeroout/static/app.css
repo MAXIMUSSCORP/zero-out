@@ -49,7 +49,7 @@ p{max-width:65ch}
 p+p{margin-top:12px}
 /* Rhythm: what follows a paragraph, list or heading gets a steady gap, so no page needs spacer markup. */
 :is(p,.list,.lines) + :is(.actions,form,.btn),.form-row + .form-row{margin-top:20px}
-:is(h2,h3) + :is(form,.field,.lines,.actions),p + .field{margin-top:16px}
+:is(h2,h3) + :is(form,.field,.lines,.actions),p + .field,p + #verify-box:not(:empty){margin-top:16px}
 a{color:var(--text);text-decoration-thickness:1px;text-underline-offset:3px}
 a:hover{text-decoration-thickness:2px}
 strong{font-weight:600}

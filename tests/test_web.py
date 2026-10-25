@@ -85,7 +85,7 @@ def mapped(e):
 
 def verified(e):
     e.client.post("/verify/start", data={"phone": "(415) 555-0100"})
-    r = e.client.post("/verify/check", data={"phone": "(415) 555-0100", "code": "123456"})
+    r = e.client.post("/verify/check", data={"code": "123456"})
     assert r.status_code == 200
 
 
@@ -141,7 +141,8 @@ def test_verify_flow_then_connect(env):
 
 
 def test_verify_bad_code_does_not_set_session(env):
-    r = env.client.post("/verify/check", data={"phone": "4155550100", "code": "000000"})
+    env.client.post("/verify/start", data={"phone": "4155550100"})
+    r = env.client.post("/verify/check", data={"code": "000000"})
     assert r.status_code == 400
     assert env.client.post(f"/c/{env.cid}/connect", data={"path": "2"}).status_code == 403
 
@@ -365,7 +366,8 @@ def test_spend_cap_503_and_banner(tmp_path, env):
 
 def test_spend_cap_blocks_connect(tmp_path, env):
     c = TestClient(env.build(settings(tmp_path, cap=0)))
-    c.post("/verify/check", data={"phone": "4155550100", "code": "123456"})
+    c.post("/verify/start", data={"phone": "4155550100"})
+    c.post("/verify/check", data={"code": "123456"})
     assert c.post(f"/c/{env.cid}/connect", data={"path": "2"}).status_code == 503
     assert not env.connect.calls
 
@@ -406,8 +408,8 @@ def test_session_cookie_flags(env):
     st = settings(__import__("pathlib").Path(env.st.audio_dir).parent)
     st.cookie_secure = True
     c = TestClient(env.build(st), base_url="https://testserver")
-    c.post("/verify/check", data={"phone": "(415) 555-0100", "code": "123456"})
-    cookie = c.post("/verify/check", data={"phone": "(415) 555-0100", "code": "123456"}).headers["set-cookie"].lower()
+    c.post("/verify/start", data={"phone": "(415) 555-0100"})
+    cookie = c.post("/verify/check", data={"code": "123456"}).headers["set-cookie"].lower()
     assert "secure" in cookie and "samesite=lax" in cookie and "httponly" in cookie and "max-age=3600" in cookie
 
 
@@ -424,7 +426,7 @@ def test_cross_origin_post_rejected_on_verify_and_connect(env):
     verified(env)
     for url, data in (
         ("/verify/start", {"phone": "4155550100"}),
-        ("/verify/check", {"phone": "4155550100", "code": "123456"}),
+        ("/verify/check", {"code": "123456"}),
         (f"/c/{env.cid}/connect", {"path": "2"}),
     ):
         assert env.client.post(url, data=data, headers=EVIL).status_code == 403
@@ -581,10 +583,13 @@ def test_htmx_errors_are_200_partials(env):
     mapped(env)
     r = env.client.post("/verify/start", data={"phone": "123"}, headers=HX)
     assert r.status_code == 200 and '<p class="error-text">' in r.text
-    r = env.client.post("/verify/check", data={"phone": "4155550100", "code": "000000"}, headers=HX)
-    assert r.status_code == 200 and "Wrong or expired code" in r.text
+    r = env.client.post("/verify/check", data={"code": "000000"}, headers=HX)
+    assert r.status_code == 200 and "Send a code first." in r.text
     r = env.client.post("/verify/start", data={"phone": "4155550100"}, headers={**HX, **EVIL})
     assert r.status_code == 200 and not env.verify.started
+    env.client.post("/verify/start", data={"phone": "4155550100"}, headers=HX)
+    r = env.client.post("/verify/check", data={"code": "000000"}, headers=HX)
+    assert r.status_code == 200 and "Wrong or expired code" in r.text
     for _ in range(25):
         r = env.client.post(f"/c/{env.cid}/ask", data={"question": "q"}, headers=HX)
     assert r.status_code == 200 and "Too many requests" in r.text
@@ -1229,3 +1234,83 @@ def test_pop_script_is_served_and_loaded_on_every_page_without_inline_script(env
         t = env.client.get(url).text
         assert '<script src="/static/pop.js" defer></script>' in t
         assert not re.search(r"<script(?![^>]*\bsrc=)", t)
+
+
+def verify_app(env, **kw):
+    st = dataclasses.replace(env.st, twilio_verify_sid="VA1", owner_number="")
+    return env.build(st, **kw)
+
+
+def test_connect_section_has_one_phone_field_and_a_send_code_button(env):
+    t = TestClient(verify_app(env)).get(f"/c/{env.cid}").text
+    assert t.count("Your phone number") == 1 and 'hx-post="/verify/start"' in t
+    assert 'hx-post="/verify/check"' not in t and "Send code" in t
+    assert "Or save your number" not in t  # hosted: there is no Settings page
+
+
+def test_local_connect_section_points_to_settings_for_a_saved_number(env):
+    st = dataclasses.replace(env.st, twilio_verify_sid="VA1", owner_number="")
+    c = TestClient(env.build(st, local=web.LocalGuard(PORT, TOKEN)), base_url=LOCAL)
+    c.get(f"/start?t={TOKEN}")
+    t = c.get(f"/c/{env.cid}").text
+    assert 'Or save your number in <a href="/settings">Settings</a> and verify it once with Twilio' in t
+    assert "ask again" in t
+
+
+def test_start_answers_with_the_code_form_for_that_number_out_of_band(env):
+    r = env.client.post("/verify/start", data={"phone": "(415) 555-0100"}, headers=HX)
+    assert r.status_code == 200 and 'id="verify-box" hx-swap-oob="true"' in r.text
+    assert 'We sent a code to <span class="tel">1-415-555-0100</span>' in r.text
+    assert 'hx-post="/verify/check"' in r.text and 'name="code"' in r.text and 'name="phone"' not in r.text
+    assert 'hx-get="/verify/form"' in r.text and "Use a different number" in r.text
+
+
+def test_use_a_different_number_brings_back_the_first_form(env):
+    r = env.client.get("/verify/form", headers=HX)
+    assert r.status_code == 200 and 'hx-post="/verify/start"' in r.text and 'name="phone"' in r.text
+
+
+def test_check_without_a_code_sent_first_fails_plainly(env):
+    r = env.client.post("/verify/check", data={"code": "123456"})
+    assert r.status_code == 400 and "Send a code first." in r.text and not env.verify.checked
+    assert env.client.post(f"/c/{env.cid}/connect", data={"path": "2"}).status_code == 403
+
+
+def test_check_ignores_a_client_sent_phone_and_uses_the_number_the_code_went_to(env):
+    env.client.post("/verify/start", data={"phone": "4155550100"})
+    r = env.client.post("/verify/check", data={"phone": "4155559999", "code": "123456"})
+    assert r.status_code == 200 and env.verify.checked == [("+14155550100", "123456")]
+    env.client.post(f"/c/{env.cid}/connect", data={"path": "2"})
+    assert env.connect.calls[0][2] == "+14155550100"
+
+
+def test_session_phone_is_set_only_after_a_good_code_and_the_pending_number_is_spent(env):
+    env.client.post("/verify/start", data={"phone": "4155550100"})
+    assert env.client.post("/verify/check", data={"code": "000000"}).status_code == 400
+    assert env.client.post(f"/c/{env.cid}/connect", data={"path": "2"}).status_code == 403
+    assert env.client.post("/verify/check", data={"code": "123456"}).status_code == 200  # a retry works
+    assert env.client.post(f"/c/{env.cid}/connect", data={"path": "2"}).status_code < 400
+
+
+def test_a_spent_pending_number_cannot_be_checked_again(env):
+    env.client.post("/verify/start", data={"phone": "4155550100"})
+    assert env.client.post("/verify/check", data={"code": "123456"}).status_code == 200
+    r = env.client.post("/verify/check", data={"code": "123456"})
+    assert r.status_code == 400 and "Send a code first." in r.text
+
+
+def test_pending_number_expires(env, monkeypatch):
+    env.client.post("/verify/start", data={"phone": "4155550100"})
+    monkeypatch.setattr(web, "VERIFY_PENDING_SECONDS", -1)
+    r = env.client.post("/verify/check", data={"code": "123456"})
+    assert r.status_code == 400 and "Send a code first." in r.text and not env.verify.checked
+
+
+def test_pending_number_is_per_session(env):
+    env.client.post("/verify/start", data={"phone": "4155550100"})
+    other = TestClient(env.app)
+    assert other.post("/verify/check", data={"code": "123456"}).status_code == 400
+
+
+def test_verify_form_is_404_in_owner_mode(env):
+    assert opened(env).get("/verify/form").status_code == 404

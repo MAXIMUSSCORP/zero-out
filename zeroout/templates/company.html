@@ -80,16 +80,9 @@
 {% elif verified %}<p>Phone verified. Use a Connect me button in the menu above.</p>
 {% else %}
   <p>We call you, then dial the company and press the keys. Verify your phone first.</p>
-  <form hx-post="/verify/start" hx-target="#verify-msg" class="form-row">
-    <div class="field"><label for="v-phone">Your phone number</label><input id="v-phone" name="phone" type="tel" required></div>
-    <button class="btn secondary">Send code</button>
-  </form>
-  <form hx-post="/verify/check" hx-target="#verify-msg" class="form-row">
-    <div class="field"><label for="v-phone2">Your phone number</label><input id="v-phone2" name="phone" type="tel" required></div>
-    <div class="field"><label for="v-code">Code</label><input id="v-code" name="code" inputmode="numeric" required></div>
-    <button>Verify</button>
-  </form>
+  {% with kind='phone', oob=False %}{% include "_verify.html" %}{% endwith %}
   <div id="verify-msg" aria-live="polite"></div>
+  {% if local %}<p class="hint">Or save your number in <a href="/settings">Settings</a> and verify it once with Twilio, and Connect me won't ask again.</p>{% endif %}
 {% endif %}
 </section>
 

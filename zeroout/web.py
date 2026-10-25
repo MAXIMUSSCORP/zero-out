@@ -74,6 +74,8 @@ SHARE_FAILED_MSG = "Something went wrong sharing that file. Nothing was marked a
 UPDATE_FAILED_MSG = "Something went wrong updating from the community. Try again later."
 NEEDS_TWILIO_LOCAL_MSG = "Needs Twilio. Add it in Settings."
 NEEDS_TWILIO_MSG = "Needs Twilio."
+VERIFY_PENDING_SECONDS = 600
+SEND_CODE_FIRST_MSG = "Send a code first."
 PHONE_TOO_BIG_MSG = "That recording is too long. Stop sooner and try again."
 CSP = (
     "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; media-src 'self'; "
@@ -867,18 +869,30 @@ def create_app(
             get_verify().start(e164)
         except Exception:
             raise HTTPException(502, "Could not send the code, try again later")
-        return HTMLResponse("<p class=\"notice\">Code sent. Enter it below.</p>")
+        request.session["verify_pending"] = {"phone": e164, "at": int(time.time())}
+        return templates.TemplateResponse(
+            request, "_verify.html", {"kind": "code", "oob": True, "number": e164})
+
+    @app.get("/verify/form", response_class=HTMLResponse)
+    def verify_form(request: Request):
+        if settings.owner_number:
+            raise HTTPException(404, "Not found")
+        return templates.TemplateResponse(request, "_verify.html", {"kind": "phone", "oob": False})
 
     @app.post("/verify/check")
-    def verify_check(request: Request, phone: str = Form(""), code: str = Form("")):
+    def verify_check(request: Request, code: str = Form("")):
+        # The number comes from the session, where /verify/start put the one it sent the code to,
+        # never from the form, so a check cannot be pointed at another number.
         if settings.owner_number:
             raise HTTPException(404, "Not found")
         same_origin(request)
-        try:
-            e164 = normalize_number(phone)
-        except ValueError as e:
-            raise HTTPException(400, str(e))
         limited(verify_limit, request)
+        pending = request.session.get("verify_pending")
+        if not (isinstance(pending, dict) and isinstance(pending.get("phone"), str)
+                and isinstance(pending.get("at"), int)
+                and 0 <= time.time() - pending["at"] <= VERIFY_PENDING_SECONDS):
+            raise HTTPException(400, SEND_CODE_FIRST_MSG)
+        e164 = pending["phone"]
         try:
             ok = get_verify().check(e164, code.strip()[:10])
         except Exception:
@@ -886,7 +900,9 @@ def create_app(
         if not ok:
             raise HTTPException(400, "Wrong or expired code")
         request.session["phone"] = e164
-        return HTMLResponse("<p class=\"notice\">Phone verified.</p>")
+        request.session.pop("verify_pending", None)
+        return HTMLResponse(
+            '<p class="notice">Phone verified.</p><div id="verify-box" hx-swap-oob="true"></div>')
 
     @app.post("/c/{cid}/connect")
     def connect_route(request: Request, cid: int, path: str = Form("")):

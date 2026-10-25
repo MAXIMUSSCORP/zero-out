@@ -1,0 +1,16 @@
+{# The Connect me phone check: first the number, then the code that was sent to it. The box is swapped out of band so an error never replaces the form. #}
+<div id="verify-box"{% if oob %} hx-swap-oob="true"{% endif %}>
+{% if kind == "code" %}
+  <p>We sent a code to <span class="tel">{{ number | tel }}</span>.</p>
+  <form hx-post="/verify/check" hx-target="#verify-msg" class="form-row">
+    <div class="field"><label for="v-code">Code</label><input id="v-code" name="code" inputmode="numeric" autocomplete="one-time-code" required></div>
+    <button>Verify</button>
+  </form>
+  <button type="button" class="btn quiet" hx-get="/verify/form" hx-target="#verify-box" hx-swap="outerHTML">Use a different number</button>
+{% else %}
+  <form hx-post="/verify/start" hx-target="#verify-msg" class="form-row">
+    <div class="field"><label for="v-phone">Your phone number</label><input id="v-phone" name="phone" type="tel" required></div>
+    <button class="btn secondary">Send code</button>
+  </form>
+{% endif %}
+</div>
