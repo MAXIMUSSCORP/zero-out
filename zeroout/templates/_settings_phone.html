@@ -16,14 +16,14 @@
 {% endif %}
 {% if c.number %}
   <ul class="list">
-    <li class="row"><span class="grow">{{ c.number }}<span class="sub">Twilio calls this number first, then the company.</span></span>
+    <li class="row"><span class="grow">{{ c.number | tel }}<span class="sub">Twilio calls this number first, then the company.</span></span>
 <span id="number-state" class="state off" hx-get="/settings/phone/number" hx-trigger="load" hx-swap="outerHTML">Checking</span>
     </li>
   </ul>
 {% endif %}
 {% if c.verifying %}
   <div class="notice" role="status" hx-post="/settings/phone/verify/status" hx-trigger="every 3s" hx-target="#settings-phone" hx-swap="outerHTML">
-    <p>Twilio is calling {{ c.verifying.number }}. Answer and type this code on the keypad: {{ c.verifying.code }}</p>
+    <p>Twilio is calling {{ c.verifying.number | tel }}. Answer and type this code on the keypad: {{ c.verifying.code }}</p>
     <p class="hint">Zero-Out checks every 3 seconds for up to 120 seconds.</p>
   </div>
 {% endif %}

@@ -3,11 +3,13 @@
 {% block title %}Phone in hand - {{ company.name }} - Zero Out{% endblock %}
 {% block width %} narrow{% endblock %}
 {% block body %}
+{% set lab = (step.label | trim) if step else '' %}
+{% set lab = lab[:1] | upper ~ lab[1:] %}
 {% set lit = (step.press_now or (step.keys[0] if step.keys else '')) if step else '' %}
 <a class="back" href="/c/{{ company.id }}">&lsaquo; {{ company.name }}</a>
 <div class="hero">
-  <h1 id="headline" class="display">{% if not step %}Hang up{% elif step.press_now %}Press {{ step.press_now }} now{% elif step.keys %}Call again, press {{ step.keys | join(', then ') }}{% else %}Call the number{% endif %}</h1>
-  <p class="lede">Call <span class="tel">{{ company.number }}</span> on your phone, on speaker, next to this computer.</p>
+  <h1 id="headline" class="display">{% if not step %}Everything reachable is mapped{% elif step.press_now %}Press {{ step.press_now }} now{% elif step.keys %}Map {{ step.keys | join(', then ') }}{% else %}Map the main menu{% endif %}</h1>
+  <p id="lede" class="lede">{% if not step %}Call only if you want to check whether the menu has changed.{% elif step.keys and lab and not step.press_now %}{{ lab | truncate(90, True, '…', 0) }}{% else %}Call <span class="tel">{{ company.number | tel }}</span> on your phone, on speaker, next to this computer.{% endif %}</p>
 </div>
 
 <div class="keypad" id="keypad" aria-hidden="true">
@@ -22,16 +24,18 @@
    data-keys="{{ step.keys | join(',') if step else '' }}"
    data-press-now="{{ step.press_now or '' if step else '' }}"
    data-label="{{ step.label if step else '' }}"
+   data-number="{{ company.number | tel }}"
    data-company="{{ company.id }}">
 {% if not step and skipped %}Every option Zero-Out could reach is mapped or was skipped. Hang up.
-{% elif not step %}This menu is mapped as far as Zero-Out goes. Hang up.
-{% elif step.press_now %}Press {{ step.press_now }} now ({{ step.label }}). Then click Start listening.
-{% elif step.keys %}Hang up and call again. Press {{ step.keys | join(', then ') }}, waiting for each menu to finish. Click Start listening right after your last key.
-{% else %}Call the number. Click Start listening when it answers.{% endif %}
+{% elif not step %}Zero-Out has heard every option it can reach. Options that need a person, account details or speech, that replay a menu, or that sit more than four menus deep are left out.
+{% elif step.press_now %}{% if lab %}{{ lab | truncate(90, True, '…', 0) }}. Then click{% else %}Click{% endif %} Start listening.
+{% elif step.keys %}Call {{ company.number | tel }}, press {{ step.keys | join(', then ') }}, waiting for each menu to finish, then click Start listening right after your last key.
+{% else %}Click Start listening when it answers.{% endif %}
 </p>
 
 <div class="actions">
-  <button id="start" type="button" class="btn primary">Start listening</button>
+  <button id="start" type="button" class="btn primary"{% if not step %} hidden{% endif %}>Start listening</button>
+  <button id="restart" type="button" class="btn primary"{% if step %} hidden{% endif %}>Map the main menu again</button>
   <button id="stop" type="button" class="btn secondary" hidden>Stop</button>
   <button id="skip" type="button" class="btn secondary"{% if not step or not step.path %} hidden{% endif %}>Skip this option</button>
 </div>

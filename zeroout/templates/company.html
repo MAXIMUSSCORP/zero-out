@@ -6,7 +6,7 @@
 <a class="back" href="/">&larr; Companies</a>
 <section class="hero">
   <h1 class="display">{{ company.name }}</h1>
-  <p class="lede tel">{{ company.number }}</p>
+  <p class="lede tel">{{ company.number | tel }}</p>
   <div class="actions">
 {% if local %}<div class="tip"><a class="btn primary" href="/c/{{ company.id }}/phone">Map with my phone</a>
       <button type="button" class="info" popovertarget="info-map-phone" aria-label="About Map with my phone">?</button></div>

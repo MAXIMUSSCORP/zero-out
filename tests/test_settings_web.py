@@ -356,7 +356,7 @@ def test_verify_start_shows_the_code_and_polls_every_three_seconds(pg):
     saved_phone(pg)
     r = post(pg, "/settings/phone/verify")
     assert pg.twilio.created == [{"phone_number": NUMBER, "friendly_name": "Zero-Out"}]
-    assert f"Twilio is calling {NUMBER}. Answer and type this code on the keypad: 123456" in r.text
+    assert f"Twilio is calling {web.tel(NUMBER)}. Answer and type this code on the keypad: 123456" in r.text
     assert 'hx-trigger="every 3s"' in r.text and 'hx-post="/settings/phone/verify/status"' in r.text
     no_secrets(r, TOKEN_SECRET)
 
@@ -1024,3 +1024,9 @@ def test_stop_reports_a_partial_write_exactly_and_reloads(pg):
     no_secrets(r, TOKEN_SECRET)
     assert not pg.vals().get("TWILIO_SID") and dotenv_values(other)["TWILIO_SID"] == SID
     assert pg.st.twilio_sid == SID  # reloaded: the second file still supplies it
+
+
+def test_owner_number_row_is_shown_the_way_people_write_it(pg):
+    with_twilio(pg)
+    t = pg.c.get("/settings").text
+    assert f'<span class="grow">{web.tel(NUMBER)}<' in t and f'grow">{NUMBER}<' not in t

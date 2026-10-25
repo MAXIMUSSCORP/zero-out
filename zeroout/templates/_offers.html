@@ -7,11 +7,11 @@
 {% for o in offers %}
     <li>
       <span class="grow">
-        <span class="tel">{{ o.number }}</span>
+        <span class="tel">{{ o.number | tel }}</span>
         <span class="sub">name given by a contributor: {{ o.name }} &middot; {{ o.files }} file{{ '' if o.files == 1 else 's' }}, first seen {{ o.first_seen | when }}, last seen {{ o.last_seen | when }}</span>
       </span>
       <form method="post" action="/companies" class="inline form-row">
-        <div class="field"><input name="name" value="{{ o.name }}" maxlength="100" required aria-label="Company name for {{ o.number }}"></div>
+        <div class="field"><input name="name" value="{{ o.name }}" maxlength="100" required aria-label="Company name for {{ o.number | tel }}"></div>
         <input type="hidden" name="number" value="{{ o.number }}">
         <button class="btn small secondary">Add</button>
       </form>

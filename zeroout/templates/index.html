@@ -14,7 +14,7 @@
 {% for c in companies %}
     <a class="tile" href="/c/{{ c.id }}">
       <h3>{{ c.name }}</h3>
-      <span class="tel">{{ c.number }}</span>
+      <span class="tel">{{ c.number | tel }}</span>
       {% if c.root_status == 'speech_menu' %}<span class="state warn">Voice menu, no keys</span>
       <span class="sub">Answers with an automated voice assistant. You say what you need; there are no keys to press.</span>
       {% else %}

@@ -253,6 +253,7 @@ def create_app(
     templates = Jinja2Templates(directory=str(TEMPLATES))
     templates.env.filters["menu_lines"] = menu_lines
     templates.env.filters["when"] = when
+    templates.env.filters["tel"] = tel
     templates.env.filters["by_key"] = by_key
     templates.env.filters["model_name"] = model_name
     templates.env.globals["model_name"] = model_name
@@ -1052,6 +1053,12 @@ def count_status(node: dict, status: str) -> int:
 def model_name(model_id) -> str:
     """A model id as a person would say it; an id it does not know is shown as it is."""
     return MODEL_NAMES.get(model_id or "", model_id or "")
+
+
+def tel(value) -> str:
+    """+18008648331 as 1-800-864-8331; anything else is shown as it is."""
+    m = re.fullmatch(r"\+1(\d{3})(\d{3})(\d{4})", str(value or ""))
+    return f"1-{m[1]}-{m[2]}-{m[3]}" if m else str(value or "")
 
 
 def when(value) -> str:

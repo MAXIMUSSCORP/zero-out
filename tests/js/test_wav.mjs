@@ -197,11 +197,11 @@ assert.equal(phone.nextText(null, 0), 'This menu is mapped as far as Zero-Out go
 // next-step text
 assert.equal(phone.nextText(null), 'This menu is mapped as far as Zero-Out goes. Hang up.');
 assert.equal(phone.nextText({ keys: ['2'], press_now: '2', label: 'billing' }),
-  'Press 2 now (billing). Then click Start listening.');
+  'Billing. Then click Start listening.');
 assert.equal(phone.nextText({ keys: [], press_now: null, label: '' }),
-  'Call the number. Click Start listening when it answers.');
+  'Click Start listening when it answers.');
 assert.equal(phone.nextText({ keys: ['1', '2'], press_now: null, label: 'x' }),
-  'Hang up and call again. Press 1, then 2, waiting for each menu to finish. Click Start listening right after your last key.');
+  'Hang up and call again, waiting for each menu to finish. Click Start listening right after your last key.');
 
 // keypad lighting and headline
 assert.equal(phone.litKey(null), '');
@@ -210,7 +210,7 @@ assert.equal(phone.litKey({ press_now: '*', keys: ['*'] }), '*');
 assert.equal(phone.litKey({ press_now: null, keys: ['1', '2'] }), '1');
 assert.equal(phone.litKey({ press_now: null, keys: [] }), '');
 assert.equal(phone.headlineText({ press_now: '3', keys: ['3'] }), 'Press 3 now');
-assert.equal(phone.headlineText({ press_now: null, keys: ['1', '2'] }), 'Call again, press 1, then 2');
+assert.equal(phone.headlineText({ press_now: null, keys: ['1', '2'] }), 'Press 1, then 2');
 assert.equal(phone.headlineText({ press_now: null, keys: [] }), 'Call the number');
 assert.equal(phone.headlineText(null), 'Hang up');
 
@@ -269,5 +269,47 @@ assert.deepEqual(given.map((x) => x.key), ['2', '1']);  // the input is not reor
 assert.equal(phone.heardHeadline('speech_menu'), 'This menu wants you to speak');
 assert.equal(phone.heardHeadline('menu'), '');
 assert.equal(phone.heardHeadline(undefined), '');
+
+// the page as opened: how to start, never "again"; the call instruction appears once, in #next
+const open = { fresh: true, number: '1-800-555-0142' };
+const deep = { path: '2.1', keys: ['2', '1'], press_now: null, label: 'costco city visa' };
+const root = { path: '', keys: [], press_now: null, label: '' };
+assert.equal(phone.headlineText(deep, open), 'Map 2, then 1');
+assert.equal(phone.headlineText(root, open), 'Map the main menu');
+assert.equal(phone.headlineText(null, open), 'Everything reachable is mapped');
+assert.equal(phone.ledeText(deep, open), 'Costco city visa');
+assert.equal(phone.ledeText({ ...deep, label: ' ' }, open), 'Call 1-800-555-0142 on your phone, on speaker, next to this computer.');
+assert.equal(phone.ledeText(root, open), 'Call 1-800-555-0142 on your phone, on speaker, next to this computer.');
+assert.equal(phone.ledeText(null, open), 'Call only if you want to check whether the menu has changed.');
+assert.equal(phone.ledeText(deep, { number: '1-800-555-0142' }), 'Call 1-800-555-0142 on your phone, on speaker, next to this computer.');
+assert.equal(phone.ledeText({ ...deep, label: 'y'.repeat(120) }, open).length, 90);
+assert.equal(phone.nextText(deep, 0, open),
+  'Call 1-800-555-0142, press 2, then 1, waiting for each menu to finish, then click Start listening right after your last key.');
+assert.equal(phone.nextText(root, 0, open), 'Click Start listening when it answers.');
+assert.equal(phone.nextText(null, 0, open),
+  'Zero-Out has heard every option it can reach. Options that need a person, account details or speech, that replay a menu, or that sit more than four menus deep are left out.');
+assert.equal(phone.nextText(null, 2, open), 'Every option Zero-Out could reach is mapped or was skipped. Hang up.');
+// after an action the headline holds the keys and #next the instruction, without repeating either
+assert.equal(phone.headlineText(deep), 'Press 2, then 1');
+assert.equal(phone.nextText(deep, 0),
+  'Hang up and call again, waiting for each menu to finish. Click Start listening right after your last key.');
+assert.ok(!/again|hang up/i.test(phone.nextText(deep, 0, open) + phone.headlineText(deep, open)));
+assert.ok(/again/i.test(phone.nextText(deep, 0)));
+assert.ok(!phone.nextText(deep, 0).includes('press 2') && !/press 2/i.test(phone.nextText(deep, 0)));
+// a press_now step is only offered after a clip was kept, and keeps its own words
+const now = { path: '1', keys: ['1'], press_now: '1', label: 'billing' };
+assert.equal(phone.headlineText(now, open), 'Press 1 now');
+assert.equal(phone.headlineText(now), 'Press 1 now');
+assert.equal(phone.nextText(now, 0), 'Billing. Then click Start listening.');
+assert.equal(phone.nextText({ ...now, label: '' }, 0), 'Click Start listening.');
+assert.equal(phone.nextText(root, 0), 'Click Start listening when it answers.');
+assert.equal(phone.headlineText(root), 'Call the number');
+// labels: capitalized, trimmed, at most 60 characters with an ellipsis, text only
+assert.equal(phone.shortLabel(' hello '), 'Hello');
+assert.equal(phone.shortLabel('x'.repeat(80)).length, 60);
+assert.ok(phone.shortLabel('x'.repeat(80)).endsWith('\u2026'));
+assert.equal(phone.shortLabel('y'.repeat(60)), 'Y' + 'y'.repeat(59));
+assert.equal(phone.shortLabel(undefined), '');
+assert.equal(phone.shortLabel('x'.repeat(200), 90).length, 90);
 
 console.log('ok');

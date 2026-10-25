@@ -90,18 +90,41 @@
   var EXPIRED_TEXT = 'This Zero-Out session has ended. Open it again from the link that zeroout run printed.';
   var MIC_TEXT = 'Zero-Out needs the microphone to hear the menu. Allow it in the browser and try again.';
 
-  function nextText(next, skipped) {
+  var MAPPED_ALL = 'Zero-Out has heard every option it can reach. Options that need a person, account details or speech, that replay a menu, or that sit more than four menus deep are left out.';
+  var CALL_LEDE = function (number) { return 'Call ' + number + ' on your phone, on speaker, next to this computer.'; };
+  var WAIT_KEYS = 'waiting for each menu to finish';
+
+  // A label from a stranger's menu: trimmed, capitalized, at most `limit` characters with an ellipsis.
+  function shortLabel(label, limit) {
+    var max = limit || 60;
+    var t = String(label || '').trim();
+    if (!t) return '';
+    t = t.charAt(0).toUpperCase() + t.slice(1);
+    return t.length > max ? t.slice(0, max - 1) + '…' : t;
+  }
+
+  // The call instruction appears once: in #next. The headline holds the keys, the lede the option's label.
+  // ctx = { fresh: true, number } is the page as opened, before anything was kept or discarded:
+  // it says how to start, never "again". Without ctx the person has already acted in this visit.
+  function nextText(next, skipped, ctx) {
+    var fresh = !!(ctx && ctx.fresh);
+    if (fresh && !next && !(skipped > 0)) return MAPPED_ALL;
+    if (fresh && next && !next.press_now) {
+      if (!next.keys || !next.keys.length) return 'Click Start listening when it answers.';
+      return 'Call ' + ctx.number + ', press ' + next.keys.join(', then ') + ', ' + WAIT_KEYS +
+        ', then click Start listening right after your last key.';
+    }
     if (!next) {
       return skipped > 0
         ? 'Every option Zero-Out could reach is mapped or was skipped. Hang up.'
         : 'This menu is mapped as far as Zero-Out goes. Hang up.';
     }
     if (next.press_now) {
-      return 'Press ' + next.press_now + ' now (' + next.label + '). Then click Start listening.';
+      var lab = shortLabel(next.label, 90);
+      return (lab ? lab + '. Then click' : 'Click') + ' Start listening.';
     }
-    if (!next.keys || !next.keys.length) return 'Call the number. Click Start listening when it answers.';
-    return 'Hang up and call again. Press ' + next.keys.join(', then ') +
-      ', waiting for each menu to finish. Click Start listening right after your last key.';
+    if (!next.keys || !next.keys.length) return 'Click Start listening when it answers.';
+    return 'Hang up and call again, ' + WAIT_KEYS + '. Click Start listening right after your last key.';
   }
 
   // What the page shows for a step: the key to light, the headline, and the heard lines as plain data.
@@ -111,11 +134,26 @@
     return step.keys && step.keys.length ? String(step.keys[0]) : '';
   }
 
-  function headlineText(next) {
+  function headlineText(next, ctx) {
+    var keys = next && next.keys ? next.keys.join(', then ') : '';
+    if (ctx && ctx.fresh && !(next && next.press_now)) {
+      if (!next) return 'Everything reachable is mapped';
+      return keys ? 'Map ' + keys : 'Map the main menu';
+    }
     if (!next) return 'Hang up';
     if (next.press_now) return 'Press ' + next.press_now + ' now';
-    if (!next.keys || !next.keys.length) return 'Call the number';
-    return 'Call again, press ' + next.keys.join(', then ');
+    return keys ? 'Press ' + keys : 'Call the number';
+  }
+
+  // The sentence under the headline: what the option is when the page opens on one, else how to call.
+  function ledeText(next, ctx) {
+    var number = ctx && ctx.number;
+    if (ctx && ctx.fresh) {
+      if (!next) return 'Call only if you want to check whether the menu has changed.';
+      var lab = next.keys && next.keys.length ? shortLabel(next.label, 90) : '';
+      if (lab) return lab;
+    }
+    return CALL_LEDE(number);
   }
 
   // heard.lines when the server sent them, else the whole prompt as one line.
@@ -241,7 +279,7 @@
 
   var api = {
     downsample: downsample, encodeWav: encodeWav, rms: rms, makeEndpointer: makeEndpointer,
-    nextText: nextText, litKey: litKey, headlineText: headlineText,
+    nextText: nextText, ledeText: ledeText, shortLabel: shortLabel, litKey: litKey, headlineText: headlineText,
     heardLines: heardLines, sortOptions: sortOptions, renderQuote: renderQuote,
     heardHeadline: heardHeadline, renderLines: renderLines, makeController: makeController, EXPIRED_TEXT: EXPIRED_TEXT,
   };
@@ -255,6 +293,7 @@
   var nextEl = $('next'), startBtn = $('start'), stopBtn = $('stop'), skipBtn = $('skip');
   var statusEl = $('status'), meter = $('meter'), errorEl = $('error');
   var reviewEl = $('review'), keepBtn = $('keep'), discardBtn = $('discard');
+  var restartBtn = $('restart');
   var cid = nextEl.dataset.company;
   var base = '/c/' + cid + '/phone';
   var stopRecording = null;
@@ -372,6 +411,7 @@
       next: function (step, skipped) {
         nextEl.textContent = nextText(step, skipped);
         $('headline').textContent = headlineText(step);
+        $('lede').textContent = ledeText(step, { number: nextEl.dataset.number });
         lightKeypad(step);
         skipBtn.hidden = !step || !step.path;
       },
@@ -383,6 +423,17 @@
         press_now: nextEl.dataset.pressNow || null, label: nextEl.dataset.label }
     : null;
 
+  // Nothing was left to map: start again from the main menu to see whether it changed.
+  restartBtn.addEventListener('click', function () {
+    var ctx = { fresh: true, number: nextEl.dataset.number };
+    ctl.current = { path: '', keys: [], press_now: null, label: '' };
+    nextEl.textContent = nextText(ctl.current, 0, ctx);
+    $('headline').textContent = headlineText(ctl.current, ctx);
+    $('lede').textContent = ledeText(ctl.current, ctx);
+    lightKeypad(ctl.current);
+    restartBtn.hidden = true;
+    startBtn.hidden = false;
+  });
   startBtn.addEventListener('click', ctl.run);
   stopBtn.addEventListener('click', function () { if (stopRecording) stopRecording(); });
   skipBtn.addEventListener('click', ctl.skip);

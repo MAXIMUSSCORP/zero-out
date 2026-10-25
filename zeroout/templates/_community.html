@@ -2,7 +2,7 @@
 {% elif kind == "preview" %}
 {% if notice %}<div class="notice" role="status">{{ notice }}</div>{% endif %}
 <p>{{ count }} heard menu{{ '' if count == 1 else 's' }} from this computer {{ 'is' if count == 1 else 'are' }} ready to share.</p>
-<p><strong>{{ company_name }} ({{ number }})</strong></p>
+<p><strong>{{ company_name }} ({{ number | tel }})</strong></p>
 {% if login %}<div class="notice strong" role="alert">This opens a public pull request on {{ repo }} as @{{ login }}. The file is public as soon as you share it, before anyone reviews it, and GitHub keeps it even if the pull request is closed. A pull request is a public proposal to add the file to the shared maps.</div>
 {% else %}<div class="notice strong" role="alert">GitHub CLI is not set up on this computer, so the file would be saved to a folder on this computer and not posted. If you add it to {{ repo }} yourself, it is public as soon as you do.</div>{% endif %}
 {% if sources %}<p class="low small">Sources: {% for name, n in sources %}{{ name }} {{ n }}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}

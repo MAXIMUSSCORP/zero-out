@@ -218,7 +218,7 @@ def test_company_page_renders_tree(env):
 def test_company_page_hero_and_back_link(env):
     t = env.client.get(f"/c/{env.cid}").text
     assert 'class="back" href="/"' in t and '<h1 class="display">Acme</h1>' in t
-    assert 'class="lede tel">+18005550000' in t and 'Not mapped yet' in t
+    assert 'class="lede tel">1-800-555-0000' in t and 'Not mapped yet' in t
     assert "observation" not in t.lower() and "node" not in t.lower() and "branch" not in t.lower()
 
 
@@ -241,7 +241,7 @@ def test_company_page_shows_root_prompt_as_lines_and_unheard_options(env):
 def test_index_lists_companies(env):
     mapped(env)
     r = env.client.get("/")
-    assert "Acme" in r.text and "+18005550000" in r.text
+    assert "Acme" in r.text and "1-800-555-0000" in r.text
     assert 'class="display">Skip the phone menu.' in r.text and 'class="tiles"' in r.text
     assert f'<a class="tile" href="/c/{env.cid}">' in r.text and 'class="state on">Mapped' in r.text
     assert "A US toll-free number, like 1-800-555-1234" in r.text and "node" not in r.text.lower()
@@ -964,7 +964,7 @@ def test_company_menu_root_is_one_block_with_the_options(env):
 
 def test_phone_numbers_are_not_tabular_figures(env):
     t = env.client.get("/").text
-    assert 'class="tel">+18005550000' in t
+    assert 'class="tel">1-800-555-0000' in t
 
 
 def bare_app(env, **kw):
@@ -1102,3 +1102,69 @@ def test_add_company_is_its_own_section_outside_the_tiles_grid(env):
 
 def test_ask_placeholder_is_short_enough_for_a_phone(env):
     assert 'placeholder="For example, dispute a charge"' in env.client.get(f"/c/{env.cid}").text
+
+
+def test_answer_for_an_option_heard_offered_but_not_pressed_says_so_and_escapes(env):
+    mapped(env)
+    env.conn.execute("UPDATE nodes SET status='mapped', outcome='menu', options_json=? WHERE path='1'",
+                     ('[{"key": "5", "label": "payments"}]',))
+    env.conn.execute("INSERT INTO nodes (company_id, path, status) VALUES (?, '1.5', 'unexplored')", (env.cid,))
+    env.conn.commit()
+    env.answer = {"path": "1.5", "explanation": "<i>pay</i> by card"}
+    t = env.client.post(f"/c/{env.cid}/ask", data={"question": "pay?"}).text
+    assert 'class="key lg">1</span><span class="then">then</span><span class="key lg">5</span>' in t
+    assert "Zero-Out has heard this option offered, but not yet what plays after you press 5." in t
+    assert "&lt;i&gt;pay&lt;/i&gt; by card" in t and "<i>pay</i>" not in t
+
+
+def test_fully_heard_answer_has_no_unheard_sentence(env):
+    mapped(env)
+    t = env.client.post(f"/c/{env.cid}/ask", data={"question": "agent"}).text
+    assert "not yet what plays" not in t
+
+
+def test_company_page_says_a_repeat_option_replays_a_menu(env):
+    from zeroout import tree
+    from zeroout.models import Observation, Option
+    rid = db.start_run(env.conn, env.cid, "crawl", "t")
+    tree.ensure_root(env.conn, env.cid)
+    obs = Observation("press", [Option("1", "billing"), Option("*", "To repeat this information")], "menu", 3.0)
+    tree.merge(env.conn, env.cid, "", obs, rid, "", YES)
+    t = env.client.get(f"/c/{env.cid}").text
+    assert t.count('class="state off">Replays a menu') == 1 and t.count('class="state off">Not mapped yet') == 1
+    assert 'class="key sm">*</span>' in t
+
+
+def test_a_mapped_replay_option_still_reads_replays_a_menu(env):
+    from zeroout import tree
+    rid = db.start_run(env.conn, env.cid, "crawl", "t")
+    tree.ensure_root(env.conn, env.cid)
+    obs = Observation("press", [Option("1", "billing"), Option("*", "To repeat this information")], "menu", 3.0)
+    tree.merge(env.conn, env.cid, "", obs, rid, "", YES)
+    for path in ("1", "*"):
+        tree.merge(env.conn, env.cid, path, Observation("press", [Option("1", "x")], "menu", 3.0), rid, "", YES)
+    t = env.client.get(f"/c/{env.cid}").text
+    assert t.count('class="state off">Replays a menu') == 1 and t.count('class="state on">Mapped') >= 1
+    assert "Not mapped yet" not in t.split("The menu")[1].split("</section>")[0]
+
+
+def test_tel_filter_formats_us_numbers_and_passes_the_rest_through():
+    assert web.tel("+18008648331") == "1-800-864-8331"
+    for odd in ("8005550000", "+442071838750", "+1800", "", "<b>x</b>"):
+        assert web.tel(odd) == odd
+    assert web.tel(None) == ""
+
+
+def test_pages_show_numbers_dashed_not_e164(env):
+    for url in ("/", f"/c/{env.cid}"):
+        t = env.client.get(url).text
+        assert "1-800-555-0000" in t and "+18005550000" not in t, url
+    t = opened(env).get(f"/c/{env.cid}/phone").text
+    assert "Call <span class=\"tel\">1-800-555-0000</span>" in t and "+18005550000" not in t
+
+
+def test_odd_stored_number_is_shown_as_it_is_and_escaped(env):
+    env.conn.execute("UPDATE companies SET number = '<b>1</b>' WHERE id = ?", (env.cid,))
+    env.conn.commit()
+    t = env.client.get("/").text
+    assert "&lt;b&gt;1&lt;/b&gt;" in t and "<b>1</b>" not in t
