@@ -110,14 +110,23 @@ synthetic 19.7 s menu resampled to 8 kHz and round-tripped through mu-law:
   options 1, 3, 4 and 9 with prompt_seconds 19.04 in about 7 s; silence gives hold
   for a crawl tail and nothing for a Connect piece.
 
-## Carried into phase 2 (from the phase 1 security review)
+- Phase 2, 2026-10-25, commit d6b4839. 499 tests. Verified end to end: installed
+  with `uv tool install`, `zeroout setup` from an empty folder (live key check,
+  real model download and hash checks, 32 s), `zeroout run` served the app, and
+  a stray `.env`, a rebinding Host, a missing or foreign Origin, no launch
+  session and a bad token were all refused. The phase 1 carried items are done
+  (per-user model folder, pinned download in setup, 110M hashes, 64 MB cap,
+  hashed locks, digest-pinned image).
 
-- Default `ASR_MODEL_DIR` is relative to the working directory; make it an
-  absolute per-user data folder that `zeroout setup` fills, and log it once.
-- `zeroout setup` downloads with the same pinned archive hash as the Dockerfile.
-- Add the English 110M model's per-file hashes to `hear.MODELS` when setup offers it.
-- Cap the bytes `probe._download` accepts.
-- A hashed lockfile for installs, and the Docker base image pinned by digest.
+## Carried into phase 3
+
+- Twilio caller ID with no purchased number is documented by Twilio's Calls API
+  ("a Twilio number or a Verified outgoing caller id"), but not yet tried on a
+  real upgraded account; the first real crawl confirms it.
+- No Docker build has been run; the locks were checked by installing them with
+  `--require-hashes` into a fresh Python 3.11 venv.
+- The git install (pipx/uv) resolves the newest compatible dependencies; only
+  the image uses the hashed lock.
 
 ## Open
 
