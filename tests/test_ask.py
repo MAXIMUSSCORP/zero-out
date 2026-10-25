@@ -135,10 +135,49 @@ def test_arrow_path_normalised():
         assert a.path == "2.1", raw
 
 
-def test_unexplored_node_rejected():
-    conn, cid, _ = mapped()
+def test_unexplored_option_the_menu_offered_is_answered_with_a_note():
+    conn, cid, _ = mapped()  # the root offers 2, and nobody has pressed it yet
     a = ask(conn, S(), cid, "q", chat=FakeChat({"path": "2", "explanation": "e"}))
-    assert a.path is None and a.top_options == ROOT_OPTS
+    assert a.path == "2" and a.unheard_end is True and a.top_options == []
+    assert a.last_confirmed == db.get_node(conn, cid, "")["last_confirmed"]
+
+
+def costco():
+    """The user's real shape: 2 is mapped and offers 3; what plays after pressing 3 is unheard."""
+    conn, cid, rid = setup()
+    m(conn, cid, rid, "", menu("For members press 2", keys=("1", "2")))
+    m(conn, cid, rid, "2", menu("For payment options press 3", keys=("3", "4")))
+    return conn, cid, rid
+
+
+def test_costco_option_heard_offered_but_not_pressed_is_answered():
+    conn, cid, _ = costco()
+    assert db.get_node(conn, cid, "2.3")["status"] == "unexplored"
+    a = ask(conn, S(), cid, "payment?", chat=FakeChat({"path": "2.3", "explanation": "Press 2 then 3"}))
+    assert a.path == "2.3" and a.explanation == "Press 2 then 3" and a.unheard_end is True
+    assert a.last_confirmed == db.get_node(conn, cid, "2")["last_confirmed"] and a.stale is False
+
+
+def test_unexplored_option_the_parent_never_offered_is_unsure():
+    conn, cid, _ = costco()
+    conn.execute("INSERT INTO nodes (company_id, path, status) VALUES (?, '2.7', 'unexplored')", (cid,))
+    conn.commit()
+    a = ask(conn, S(), cid, "q", chat=FakeChat({"path": "2.7", "explanation": "e"}))
+    assert a.path is None and a.explanation == UNSURE and a.unheard_end is False
+
+
+def test_unexplored_option_under_an_unheard_parent_is_unsure():
+    conn, cid, _ = costco()
+    conn.execute("INSERT INTO nodes (company_id, path, status) VALUES (?, '2.3.1', 'unexplored')", (cid,))
+    conn.commit()
+    a = ask(conn, S(), cid, "q", chat=FakeChat({"path": "2.3.1", "explanation": "e"}))
+    assert a.path is None and a.explanation == UNSURE
+
+
+def test_fully_mapped_path_has_no_unheard_note():
+    conn, cid, _ = mapped()
+    a = ask(conn, S(), cid, "q", chat=FakeChat({"path": "1", "explanation": "e"}))
+    assert a.path == "1" and a.unheard_end is False
 
 
 def test_bad_responses_rejected():
@@ -200,3 +239,13 @@ def test_short_numbers_like_keys_survive_sanitising():
     conn, cid, _ = mapped()
     a = ask(conn, S(), cid, "q", chat=FakeChat({"path": "1", "explanation": "Press 1 then 2"}))
     assert a.explanation == "Press 1 then 2"
+
+
+def test_unexplored_child_of_a_terminal_parent_is_unsure_even_if_options_are_stored():
+    conn, cid, _ = mapped()  # node 1 is a human; give it stored options and a child row anyway
+    conn.execute("UPDATE nodes SET options_json = ? WHERE path = '1'", ('[{"key": "4", "label": ""}]',))
+    conn.execute("INSERT INTO nodes (company_id, path, status) VALUES (?, '1.4', 'unexplored')", (cid,))
+    conn.commit()
+    assert db.get_node(conn, cid, "1")["outcome"] != "menu"
+    a = ask(conn, S(), cid, "q", chat=FakeChat({"path": "1.4", "explanation": "e"}))
+    assert a.path is None and a.explanation == UNSURE and a.unheard_end is False

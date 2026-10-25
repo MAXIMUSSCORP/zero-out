@@ -33,6 +33,7 @@ class Answer:
     last_confirmed: str | None
     stale: bool
     top_options: list[Option] = field(default_factory=list)
+    unheard_end: bool = False  # the last option was heard offered, but what plays after it was not
 
 
 def _normalize(raw) -> str | None:
@@ -84,8 +85,15 @@ def ask(
 
     path = _normalize(out.get("path"))
     node = db.get_node(conn, company_id, path) if path else None
-    if node is None or node["status"] == "unexplored":
+    if node is None:
         return _unsure(root)
+    last_confirmed, unheard_end = node["last_confirmed"], False
+    if node["status"] == "unexplored":
+        parent = db.get_node(conn, company_id, path.rpartition(".")[0])
+        offered = {o["key"] for o in json.loads(parent["options_json"] or "[]")} if parent else set()
+        if parent is None or parent["status"] == "unexplored" or parent["outcome"] != "menu" or path.rpartition(".")[2] not in offered:
+            return _unsure(root)
+        last_confirmed, unheard_end = parent["last_confirmed"], True
 
     parts = path.split(".")
     prefixes = [""] + [".".join(parts[:i]) for i in range(1, len(parts) + 1)]
@@ -97,7 +105,8 @@ def ask(
     return Answer(
         path,
         _clean(explanation),
-        node["last_confirmed"],
+        last_confirmed,
         stale,
         [],
+        unheard_end,
     )
