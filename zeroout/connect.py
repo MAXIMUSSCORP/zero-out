@@ -10,7 +10,7 @@ from .budget import can_spend
 from .config import Settings
 from .db import LOCK, get_node, now, start_run
 from .models import Observation, Step
-from .paths import build_path, is_toll_free, press_times
+from .paths import build_path, file_part, is_toll_free, press_times
 from .probe import FAILED, _download, steps_twiml
 from .segment import duration, segment
 from .tree import merge, nano_same_meaning
@@ -58,7 +58,7 @@ def ingest_connect_recording(
         if obs.outcome not in ("human", "voicemail"):  # never keep audio of real people
             d = os.path.join(settings.audio_dir, str(company_id))
             os.makedirs(d, exist_ok=True)
-            file = os.path.join(d, f"{run_id}-connect-{prefix or 'root'}.wav")
+            file = os.path.join(d, f"{run_id}-connect-{file_part(prefix)}.wav")
             with open(file, "wb") as f:
                 f.write(clip)
         results.append(merge(conn, company_id, prefix, obs, run_id, file, same_meaning))

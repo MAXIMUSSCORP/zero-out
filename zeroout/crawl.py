@@ -10,7 +10,7 @@ from .budget import Budget, calls_today, can_spend
 from .config import Settings, load_settings
 from .db import LOCK, connect, now, start_run
 from .models import Observation
-from .paths import build_path, press_times
+from .paths import build_path, file_part, press_times
 from .probe import TAIL_SECONDS, CallFailed, Probe, twilio_probe
 from .segment import duration, tail
 from .tree import ensure_root, merge, nano_same_meaning, unexplored
@@ -93,7 +93,7 @@ def crawl(
         if obs.outcome not in ("human", "voicemail"):  # never publish audio of real people
             d = os.path.join(settings.audio_dir, str(company_id))
             os.makedirs(d, exist_ok=True)
-            file = os.path.join(d, f"{run_id}-{path or 'root'}-{n}.wav")
+            file = os.path.join(d, f"{run_id}-{file_part(path)}-{n}.wav")
             with open(file, "wb") as f:
                 f.write(clip)
         try:

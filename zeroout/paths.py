@@ -27,6 +27,11 @@ def is_toll_free(e164: str) -> bool:
     return bool(re.fullmatch(r"\+1\d{10}", e164 or "")) and e164[2:5] in _TOLL_FREE
 
 
+def file_part(path: str) -> str:
+    """A key path as a filename piece; Windows rejects * in filenames."""
+    return path.replace("*", "star") or "root"
+
+
 def _parent(path: str) -> str:
     return path.rpartition(".")[0]
 

@@ -2,7 +2,7 @@ import pytest
 
 from zeroout.db import add_company, connect
 from zeroout.models import Step
-from zeroout.paths import build_path, is_toll_free, normalize_number, press_times
+from zeroout.paths import build_path, file_part, is_toll_free, normalize_number, press_times
 
 
 @pytest.fixture
@@ -15,6 +15,11 @@ def db():
     )
     conn.commit()
     return conn, cid
+
+
+def test_file_part_is_windows_safe():
+    assert file_part("") == "root"
+    assert file_part("2.*.1") == "2.star.1"
 
 
 def test_normalize_vanity():
