@@ -34,6 +34,16 @@ This needs no Twilio account. It works in the local app only.
 
 The microphone audio is never saved. If a person or a voicemail answers, none of their words are kept.
 
+## Share with the community
+
+Sharing is not live yet. Once it is live, trees will be shared through the public repo [MAXIMUSSCORP/zero-out-trees](https://github.com/MAXIMUSSCORP/zero-out-trees), and a read-only website built from that repo will be at https://maximusscorp.github.io/zero-out-trees/.
+
+**Share with the community** is on a company page, or run `zeroout contribute --company-id N`. It previews the exact file first. The file is redacted: digit runs, emails and numbers in names are replaced. It holds no audio, no costs, no phone number of yours, and only dates.
+
+Sharing opens a public pull request under your GitHub account, through the `gh` CLI. The file is public before review, and GitHub keeps it. Without `gh`, the file goes to an outbox folder, with a link to upload it by hand.
+
+**Update from community** is on the home page, or run `zeroout update`. It brings in trees only for companies you added yourself. Other numbers are listed as "Offered by the community". They are unverified, so check a number against your card, statement or the company's website before you add it. Community data fills gaps and never changes what you mapped yourself.
+
 ## Twilio and your own number
 
 Twilio is optional. You need it for automatic crawls and for Connect me.
@@ -61,17 +71,20 @@ Nano and Super go through one OpenAI-compatible client (`zeroout/llm.py` → `ch
 
 ```
 zeroout/
-  paths.py    number normalisation (vanity letters → digits), toll-free check, key timing
-  probe.py    Twilio call: pauses + DTMF, record, download
-  hear.py     Parakeet speech recognition → timed words
-  listen.py   timed transcript → Nano → Observation
-  tree.py     merge rules, tree JSON
-  crawl.py    breadth-first crawl within budget
-  connect.py  Connect me: replay path in a conference, dial the verified user, stop recording on join
-  phone.py    phone in hand: take a clip, merge it, say what to press next
-  ask.py      grounded Q&A
-  web.py      FastAPI + Jinja + HTMX site and JSON API
-eval/         listen accuracy and coverage reports
+  paths.py       number normalisation (vanity letters → digits), toll-free check, key timing
+  probe.py       Twilio call: pauses + DTMF, record, download
+  hear.py        Parakeet speech recognition → timed words
+  listen.py      timed transcript → Nano → Observation
+  tree.py        merge rules, tree JSON
+  crawl.py       breadth-first crawl within budget
+  connect.py     Connect me: replay path in a conference, dial the verified user, stop recording on join
+  phone.py       phone in hand: take a clip, merge it, say what to press next
+  community.py   share and import community trees
+  github.py      gh pull requests, community download
+  site_build.py  the static community site
+  ask.py         grounded Q&A
+  web.py         FastAPI + Jinja + HTMX site and JSON API
+eval/            listen accuracy and coverage reports
 ```
 
 ## Development
