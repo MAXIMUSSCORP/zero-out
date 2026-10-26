@@ -291,9 +291,10 @@ def _node(node, parent, lines, depth=0):
         out.append(f'<p class="tip"><span class="lbl">General tip</span> {esc(TIP)}</p>')
     else:
         replays, prompt = _replays(), _s(o.get("prompt_text"))
-        labels = {k: _fill(_s(x.get("label")), k, prompt) for k, x in ((str(x.get("key", "")), x) for x in o.get("options", []))}
+        pairs = [(str(x.get("key", "")), x) for x in o.get("options", [])]
+        labels = {k: _fill(_s(x.get("label")), k, prompt) for k, x in pairs}
         opts = [f'<li>{_cap(k, "key sm")}<span class="t">{esc(labels[k])}</span>'
-                f'{REPLAY_STATE if replays(labels[k]) else ""}</li>'
+                f'{REPLAY_STATE if replays(_s(x.get("label")), k, prompt) else ""}</li>'
                 for k, x in sorted(((str(x.get("key", "")), x) for x in o.get("options", [])),
                                    key=lambda kx: _key_rank(kx[0]))]
         if opts:
@@ -421,9 +422,9 @@ def _menu_text():
 
 
 def _replays():
-    """replays_menu from menu_text.py; with no sibling, nothing is marked."""
+    """option_replays from menu_text.py; with no sibling, nothing is marked."""
     mod = _menu_text()
-    return mod.replays_menu if mod else (lambda label: False)
+    return mod.option_replays if mod else (lambda label, key, prompt_text: False)
 
 
 def _examples(prompt_text):

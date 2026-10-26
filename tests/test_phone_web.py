@@ -184,7 +184,7 @@ def test_clip_raw_body_and_flags_pass_through_and_store_nothing(env, fake):
     assert j["message"] == "Check what was heard, then keep it or discard it."
     assert j["heard"] == {
         "outcome": "menu", "prompt_text": "press 1 for billing",
-        "options": [{"key": "1", "label": "billing"}, {"key": "2", "label": "<b>x</b>"}],
+        "options": [{"key": "1", "label": "Billing"}, {"key": "2", "label": "<b>x</b>"}],
         "lines": [{"text": "press 1 for billing", "key": "1"}]}
     assert j["nonce"] and fake.kept == [] and name_of(env) == "Acme"
     assert env.conn.execute("SELECT COUNT(*) n FROM observations").fetchone()["n"] == 0
@@ -279,7 +279,7 @@ def test_keep_merges_only_after_keep(env, fake):
     j = r.json()
     assert name_of(env) == "Acme!" and fake.kept[0][0] == "1" and fake.kept[0][1] is fake.obs
     assert j["result"] == "mapped" and j["message"] == "Kept it." and j["outcome"] == "menu"
-    assert j["options"][0] == {"key": "1", "label": "billing"}
+    assert j["options"][0] == {"key": "1", "label": "Billing"}
     assert j["next"]["path"] == "9"  # computed by the route with the skip set, not keep_clip's own
     assert act(c, env, "keep", {"nonce": nonce}).status_code == 404  # single use
 
@@ -626,6 +626,6 @@ def test_heard_and_kept_options_show_derived_labels(env, fake):
                            [Option("1", "press 1"), Option("5", "")], "menu", 4.0)
     c = local_client(env)
     j = clip(c, env, path="").json()
-    want = [{"key": "1", "label": "billing questions"}, {"key": "5", "label": "Costco Travel"}]
+    want = [{"key": "1", "label": "Billing questions"}, {"key": "5", "label": "Costco Travel"}]
     assert j["heard"]["options"] == want
     assert act(c, env, "keep", {"nonce": j["nonce"]}).json()["options"] == want

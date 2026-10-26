@@ -222,7 +222,7 @@ REPLAYS = [
     "Para volver a oír el menú", "Para repetir las opciones", "Para repetir este menú", "Para repetir el menú", "PARA REPETIR EL MENÚ", "Para repetir el menu", "PARA REPETIR ESTA INFORMACIÓN", "Para repetir el mensaje", "menu principal", "menú principal", "To repeat",
 ]
 NOT_REPLAYS = [
-    "Repairs", "Return a product", "Returns and exchanges", "Main street store hours", "billing questions",
+    "Repairs", "Return a product", "Returns and exchanges", "Main street store hours", "Billing questions",
     "report a lost or stolen phone", "Pharmacy", "Repeat customers desk is closed", "", "   ",
     "Para volver a surtir su receta", "Para volver a programar su cita", "Para volver a enviar su factura",
     "Para repetir su pedido", "Mainframe support", "Go backstage", "Starting overtime pay",
@@ -259,18 +259,18 @@ COSTCO = ("Thank you for calling Costco. For billing questions, press 1. To repo
 
 @pytest.mark.parametrize("label,key,want", [
     ("", "5", "Costco Travel"),
-    ("one", "1", "billing questions"),
-    ("1", "1", "billing questions"),
-    ("two", "2", "report a lost or stolen card"),
-    ("2", "2", "report a lost or stolen card"),
-    ("press 1", "1", "billing questions"),
-    ("Press 1", "1", "billing questions"),
-    ("Press one", "1", "billing questions"),
-    ("oprima uno", "1", "billing questions"),
-    ("star", "*", "repeat this information"),
-    ("asterisco", "*", "repeat this information"),
+    ("one", "1", "Billing questions"),
+    ("1", "1", "Billing questions"),
+    ("two", "2", "Report a lost or stolen card"),
+    ("2", "2", "Report a lost or stolen card"),
+    ("press 1", "1", "Billing questions"),
+    ("Press 1", "1", "Billing questions"),
+    ("Press one", "1", "Billing questions"),
+    ("oprima uno", "1", "Billing questions"),
+    ("star", "*", "Repeat this information"),
+    ("asterisco", "*", "Repeat this information"),
     ("pound", "#", "Option #"),
-    ("", "6", "the pharmacy"),
+    ("", "6", "The pharmacy"),
     ("", "7", "Option 7"),
     ("press 9", "9", "Option 9"),
     ("  ", "5", "Costco Travel"),
@@ -281,9 +281,15 @@ def test_fill_label_derives_a_label_from_the_sentence_for_that_key(label, key, w
 
 
 @pytest.mark.parametrize("label", ["billing", "Costco Travel", "press 1 for billing", "Return a product", "1 hour photo"])
-def test_fill_label_keeps_a_real_label(label):
+def test_fill_label_keeps_a_real_label_when_the_prompt_has_no_sentence_for_that_key(label):
     from zeroout.menu_text import fill_label
-    assert fill_label(label, "1", COSTCO) == label
+    assert fill_label(label, "8", COSTCO) == label
+
+
+def test_fill_label_prefers_the_words_of_the_prompt_over_a_stored_label_that_shares_a_word():
+    from zeroout.menu_text import fill_label
+    assert fill_label("Billing", "1", COSTCO) == "Billing questions"
+    assert fill_label("Return a product", "1", COSTCO) == "Return a product"  # unrelated, and no other key's
 
 
 @pytest.mark.parametrize("args", [(None, "1", None), (5, 1, 7), ("", None, "x"), ("one", "1", ""), ("", "1", b"x")])
@@ -298,16 +304,16 @@ def test_fill_label_with_no_prompt_text_names_the_key():
 
 
 @pytest.mark.parametrize("prompt,key,want", [
-    ("Press 1 for billing and press 2 to repeat this menu.", "1", "billing"),
-    ("Press 1 for billing and press 2 to repeat this menu.", "2", "repeat this menu"),
-    ("For billing press 1 to go back press 2.", "1", "billing"),
-    ("For billing press 1 to go back press 2.", "2", "go back"),
-    ("For sales press 1 for the main menu press 2.", "1", "sales"),
-    ("For sales press 1 for the main menu press 2.", "2", "the main menu"),
-    ("Press 1 for sales, press 2 for support, or press 3 for billing.", "2", "support"),
-    ("Press 1 for sales, press 2 for support, or press 3 for billing.", "3", "billing"),
-    ("For sales, press 1, for support, press 2.", "2", "support"),
-    ("Say or press 6 for the pharmacy.", "6", "the pharmacy"),
+    ("Press 1 for billing and press 2 to repeat this menu.", "1", "Billing"),
+    ("Press 1 for billing and press 2 to repeat this menu.", "2", "Repeat this menu"),
+    ("For billing press 1 to go back press 2.", "1", "Billing"),
+    ("For billing press 1 to go back press 2.", "2", "Go back"),
+    ("For sales press 1 for the main menu press 2.", "1", "Sales"),
+    ("For sales press 1 for the main menu press 2.", "2", "The main menu"),
+    ("Press 1 for sales, press 2 for support, or press 3 for billing.", "2", "Support"),
+    ("Press 1 for sales, press 2 for support, or press 3 for billing.", "3", "Billing"),
+    ("For sales, press 1, for support, press 2.", "2", "Support"),
+    ("Say or press 6 for the pharmacy.", "6", "The pharmacy"),
 ])
 def test_fill_label_takes_only_the_words_that_belong_to_that_key(prompt, key, want):
     from zeroout.menu_text import fill_label
@@ -387,3 +393,395 @@ def test_examples_time_bounded():
     spoken_examples("You can say " + ", or " * 20000)
     spoken_examples("you can say " + "a " * 50000)
     assert time.perf_counter() - t < 0.5
+
+
+TRAVEL = ("Thank you for calling Costco Travel. For rental cars, press 1. For cruises, press 2. "
+          "For specialty travel or guided vacations. Press 3. For travel within the United States. Press 4. "
+          "For Canada vacation packages. Press 5. For all other international travel. Press 6. "
+          "For travel insurance or if you are in need of in-travel or post-travel assistance. Press 7. "
+          "To repeat these options, press the star key.")
+
+
+def test_a_bare_press_sentence_joins_the_choice_sentence_before_it():
+    lines = menu_lines(TRAVEL)
+    assert [x["text"] for x in lines][:5] == [
+        "Thank you for calling Costco Travel.", "For rental cars, press 1.", "For cruises, press 2.",
+        "For specialty travel or guided vacations, press 3.", "For travel within the United States, press 4."]
+    assert [x["key"] for x in lines] == [None, "1", "2", "3", "4", "5", "6", "7", "*"]
+    assert lines[7]["text"] == ("For travel insurance or if you are in need of in-travel or post-travel "
+                                "assistance, press 7.")
+    assert lines[8] == {"text": "To repeat these options, press the star key.", "key": "*"}
+
+
+@pytest.mark.parametrize("bare,key", [
+    ("Press the star key.", "*"), ("Press the pound key.", "#"), ("Press pound.", "#"), ("Oprima tres.", "3"),
+    ("Press 3", "3"), ("Say or press 3.", "3"),
+])
+def test_bare_key_sentences_of_every_shape_join_the_previous_line(bare, key):
+    lines = menu_lines(f"For the thing. {bare}")
+    assert len(lines) == 1 and lines[0]["key"] == key and lines[0]["text"].startswith("For the thing, ")
+
+
+def test_a_bare_press_sentence_with_no_choice_before_it_stands_alone():
+    assert [x["key"] for x in menu_lines("Press 3.")] == ["3"]
+    lines = menu_lines("For billing, press 1. Press 2.")
+    assert [x["text"] for x in lines] == ["For billing, press 1.", "Press 2."]
+
+
+def test_filtered_keys_still_apply_to_a_joined_line():
+    assert [x["key"] for x in menu_lines("For cars. Press 3.", ["4"])] == [None]
+    assert [x["key"] for x in menu_lines("For cars. Press 3.", ["3"])] == ["3"]
+
+
+@pytest.mark.parametrize("key,want", [
+    ("1", "Rental cars"), ("2", "Cruises"), ("3", "Specialty travel or guided vacations"),
+    ("4", "Travel within the United States"), ("5", "Canada vacation packages"),
+    ("6", "All other international travel"),
+    ("7", "Travel insurance or if you are in need of in-travel or post-travel assistance"),
+    ("*", "Repeat these options"),
+])
+def test_fill_label_prefers_the_transcript_over_shifted_stored_labels(key, want):
+    from zeroout.menu_text import fill_label, replays_menu
+    shifted = {"1": "rental cars", "2": "cruises", "3": "travel within the United States", "4": "Canada vacation packages",
+               "5": "all other international travel", "6": "travel insurance or if", "7": "", "*": "star"}
+    assert fill_label(shifted.get(key, ""), key, TRAVEL) == want
+    assert replays_menu(fill_label("", key, TRAVEL)) is (key == "*")
+
+
+RENTAL = ("This menu is for rental car reservations that are not combined with any other hotel reservation. "
+          "If you need assistance with a rental car that is part of a package, please press pound to return to "
+          "the previous menu and select the destination in which your package is for. "
+          "For new bookings or to make changes to your existing reservation, press 1. "
+          "For help with your online account or to book on CostcoTravel.com, press 2. "
+          "For in travel assistance, press 3. To repeat these options, press the star key. "
+          "To return to the previous, press the pound key.")
+
+
+@pytest.mark.parametrize("key,want", [
+    ("1", "New bookings or to make changes to your existing reservation"),
+    ("2", "Help with your online account or to book on CostcoTravel.com"),
+    ("3", "In travel assistance"),
+    ("*", "Repeat these options"),
+    ("#", "Return to the previous"),
+])
+def test_fill_label_skips_a_condition_and_prefers_the_sentence_that_ends_on_the_key(key, want):
+    from zeroout.menu_text import fill_label
+    assert fill_label("", key, RENTAL) == want
+
+
+def test_a_condition_before_the_key_is_never_the_label_and_the_words_after_it_are_used():
+    from zeroout.menu_text import fill_label, replays_menu
+    text = ("If you need assistance with a rental car that is part of a package, please press pound to return "
+            "to the previous menu.")
+    got = fill_label("", "#", text)
+    assert got == "Return to the previous menu" and replays_menu(got)
+    assert fill_label("", "1", "If you are a member, please press 1.") == "Option 1"
+    assert fill_label("", "1", "When you are ready then press 1.") == "Option 1"
+
+
+@pytest.mark.parametrize("key", ["1", "2", "3"])
+def test_the_rental_menu_choices_are_not_replays(key):
+    from zeroout.menu_text import fill_label, replays_menu
+    assert not replays_menu(fill_label("", key, RENTAL))
+
+
+def test_replay_detection_ignores_a_word_after_the_key_in_a_before_style_sentence():
+    from zeroout.menu_text import fill_label
+    assert fill_label("", "1", "For sales press 1 for the main menu press 2.") == "Sales"
+
+
+@pytest.mark.parametrize("prompt,key", [
+    ("To start over with a new booking, press 2.", "2"),
+    ("If you want to go back to a previous order, press 4.", "4"),
+    ("For questions about the main menu items on our website, press 3.", "3"),
+    ("To go back to your account settings and change your address, press 5.", "5"),
+])
+def test_a_choice_that_merely_mentions_navigation_is_not_a_replay(prompt, key):
+    from zeroout.menu_text import option_replays
+    assert option_replays("", key, prompt) is False
+
+
+@pytest.mark.parametrize("prompt,key,stored", [
+    ("To repeat these options, press the star key.", "*", ""),
+    ("Please press pound to return to the previous menu.", "#", ""),
+    ("To return to the previous, press the pound key.", "#", ""),
+    ("To go back, press 9.", "9", ""),
+    ("If you would like to go back, press 9.", "9", ""),
+    ("For billing press 1.", "*", "Repeat this information"),
+    ("For billing press 1.", "8", "return to the previous menu"),  # nothing derivable: the stored label is read
+    ("To start over, press 7.", "7", ""),
+    ("To hear these options again, press star.", "*", ""),
+    ("Para repetir las opciones, oprima asterisco.", "*", ""),
+])
+def test_navigation_phrases_that_open_a_short_label_are_replays(prompt, key, stored):
+    from zeroout.menu_text import option_replays
+    assert option_replays(stored, key, prompt) is True
+
+
+def test_the_fixtures_replay_only_where_they_navigate():
+    from zeroout.menu_text import option_replays
+    assert [k for k in "1234567*" if option_replays("", k, TRAVEL)] == ["*"]
+    assert [k for k in "123*#" if option_replays("", k, RENTAL)] == ["*", "#"]
+    # the derived label decides: "#" derives "Return to the previous" even when the stored label is wrong
+    assert option_replays("Return to the previous menu", "#", RENTAL) and option_replays("billing", "#", RENTAL)
+
+
+def test_a_shifted_stored_replay_label_does_not_hide_a_real_option():
+    from zeroout.menu_text import option_replays
+    assert option_replays("To repeat these options", "2", "For rental cars, press 1. For cruises, press 2.") is False
+    assert option_replays("To repeat these options", "7", TRAVEL) is False
+    assert option_replays("Start over with a new booking", "2", "To start over with a new booking, press 2.") is False
+    assert option_replays("To repeat these options", "*", TRAVEL) is True
+
+
+def test_the_six_acceptance_cases():
+    from zeroout.menu_text import option_replays
+    assert option_replays("", "#", RENTAL) is True
+    assert option_replays("", "2", "To start over with a new booking, press 2.") is False
+    assert option_replays("", "4", "If you want to go back to a previous order, press 4.") is False
+    assert option_replays("", "3", "For questions about the main menu items on our website, press 3.") is False
+    assert option_replays("To repeat these options", "2", "For cruises, press 2.") is False
+    assert option_replays("", "*", TRAVEL) is True
+
+
+def test_a_long_intro_sentence_does_not_merge_with_a_bare_press_sentence():
+    lines = menu_lines("To protect your privacy, calls may be recorded. Press 1.")
+    assert [(x["text"], x["key"]) for x in lines] == [
+        ("To protect your privacy, calls may be recorded.", None), ("Press 1.", "1")]
+    from zeroout.menu_text import fill_label
+    assert fill_label("", "1", "To protect your privacy, calls may be recorded. Press 1.") == "Option 1"
+
+
+def test_a_short_choice_sentence_still_merges_and_si_opens_one():
+    assert [(x["text"], x["key"]) for x in menu_lines("Si desea hablar con un agente. Oprima 0.")] == [
+        ("Si desea hablar con un agente, oprima 0.", "0")]
+    assert menu_lines("For specialty travel or guided vacations. Press 3.")[0]["key"] == "3"
+
+
+@pytest.mark.parametrize("prompt,key,want", [
+    ("Are you calling about a Costco.com order you've already placed, including order status, returning, or "
+     "canceling an order? Press 1.", "1",
+     "A Costco.com order you've already placed, including order status, returning, or canceling an order"),
+    ("Do you need product information or assistance placing an order online? Press 2.", "2",
+     "Product information or assistance placing an order online"),
+    ("Would you like help with your membership or questions about the executive 2% reward program? Press 4.", "4",
+     "Help with your membership or questions about the executive 2% reward program"),
+    ("Costco Logistics Delivery Questions? Press 2.", "2", "Costco Logistics Delivery Questions"),
+    ("Looking for product information? Press 1.", "1", "Product information"),
+    ("Do you have questions about your order? Press 3.", "3", "Questions about your order"),
+    ("Is this about a warranty claim? Press 6.", "6", "A warranty claim"),
+])
+def test_a_question_sentence_and_its_press_sentence_make_one_labelled_line(prompt, key, want):
+    from zeroout.menu_text import fill_label
+    lines = menu_lines(prompt)
+    assert len(lines) == 1 and lines[0]["key"] == key
+    assert fill_label("", key, prompt) == want
+
+
+@pytest.mark.parametrize("prompt,key,want", [
+    ("If you wish to speak with a Costco representative, press Zero.", "0", "Speak with a Costco representative"),
+    ("If you need assistance while traveling, press 2.", "2", "Need assistance while traveling"),
+    ("If you do not have your order number, press 8.", "8", "Do not have your order number"),
+    ("If you have questions about a shop card ordered online, press 2.", "2",
+     "Questions about a shop card ordered online"),
+    ("If you want to hear this again, press Star.", "*", "Hear this again"),
+])
+def test_an_if_you_clause_with_nothing_after_the_key_is_the_label(prompt, key, want):
+    from zeroout.menu_text import fill_label
+    assert fill_label("", key, prompt) == want
+
+
+def test_an_if_clause_ending_in_please_is_still_not_a_label():
+    from zeroout.menu_text import fill_label
+    assert fill_label("", "1", "If you are a member, please press 1.") == "Option 1"
+    assert fill_label("", "#", "If you need assistance, please press pound to return to the previous menu.") \
+        == "Return to the previous menu"
+
+
+@pytest.mark.parametrize("prompt,key,want", [
+    ("For Tahiti, Fiji, or the Cook Islands. Press 5.", "5", "Tahiti, Fiji, or the Cook Islands"),
+    ("For California, including Disneyland, or Florida, including Disney World. Press 2.", "2",
+     "California, including Disneyland, or Florida, including Disney World"),
+    ("Para ventas, servicio y soporte. Oprima 3.", "3", "Ventas, servicio y soporte"),
+    ("Si desea hablar con un agente, ahora. Oprima 0.", "0", "Desea hablar con un agente, ahora"),
+])
+def test_for_lines_with_commas_merge_at_any_length(prompt, key, want):
+    from zeroout.menu_text import fill_label
+    assert len(menu_lines(prompt)) == 1
+    assert fill_label("", key, prompt) == want
+
+
+def test_only_a_to_line_with_a_comma_stays_apart():
+    assert len(menu_lines("To protect your privacy, calls may be recorded. Press 1.")) == 2
+    assert len(menu_lines("To repeat this information. Press Star.")) == 1
+
+
+def test_press_zero_and_press_star_in_capitals_are_keys():
+    assert [x["key"] for x in menu_lines("Press Zero. Press Star. Press Pound. Oprima CERO.")] == ["0", "*", "#", "0"]
+
+
+def test_the_costco_replays_hold_after_the_new_merges():
+    from zeroout.menu_text import option_replays
+    assert option_replays("", "*", "To repeat this information. Press Star.") is True
+    assert option_replays("", "2", "If you need assistance while traveling, press 2.") is False
+    assert option_replays("", "0", "If you wish to speak with a Costco representative, press Zero.") is False
+    assert option_replays("", "#", RENTAL) is True and option_replays("", "*", TRAVEL) is True
+    assert option_replays("", "4", "If you want to go back to a previous order, press 4.") is False
+
+
+@pytest.mark.parametrize("prompt,key", [
+    ("To return to the main menu at any time, press star.", "*"),
+    ("Press star at any time to return to the main menu.", "*"),
+    ("To repeat these options or to hear them again, press star.", "*"),
+    ("If you need assistance with a rental car that is part of a package, please press pound to return to the "
+     "previous menu and select the destination in which your package is for.", "#"),
+    ("At any time, press star to go back.", "*"),
+    ("Press pound to return to the previous menu now.", "#"),
+    ("To start over at any time, press 9.", "9"),
+])
+def test_common_replay_phrasings_are_replays(prompt, key):
+    from zeroout.menu_text import option_replays
+    assert option_replays("", key, prompt) is True
+
+
+@pytest.mark.parametrize("prompt,key", [
+    ("To start over with a new booking, press 2.", "2"),
+    ("To start over with a new booking at any time, press 2.", "2"),
+    ("If you want to go back to a previous order, press 4.", "4"),
+    ("For questions about the main menu items on our website, press 3.", "3"),
+    ("To return an item and get a refund, press 5.", "5"),
+    ("Press 6 at any time to speak with a representative.", "6"),
+    ("To hear them again with a new account, press 7.", "7"),
+])
+def test_filler_stripping_does_not_turn_choices_into_replays(prompt, key):
+    from zeroout.menu_text import option_replays
+    assert option_replays("", key, prompt) is False
+
+
+def test_the_shown_label_keeps_its_filler_while_the_replay_decision_does_not():
+    from zeroout.menu_text import fill_label
+    assert fill_label("", "*", "To return to the main menu at any time, press star.") == "Return to the main menu at any time"
+    assert fill_label("", "*", "Press star at any time to return to the main menu.") == "At any time to return to the main menu"
+
+
+@pytest.mark.parametrize("prompt,key", [
+    ("For the main menu, press 9.", "9"),
+    ("For the main menu press 0.", "0"),
+    ("For the previous menu, press star.", "*"),
+    ("To go to the main menu, press star.", "*"),
+    ("To go back to the previous menu, press pound.", "#"),
+    ("For sales press 1 for the main menu press 2.", "2"),
+    ("To return to the previous menu, press pound.", "#"),
+])
+def test_for_the_main_menu_and_go_to_forms_are_replays(prompt, key):
+    from zeroout.menu_text import option_replays
+    assert option_replays("", key, prompt) is True
+
+
+@pytest.mark.parametrize("prompt,key", [
+    ("To start over with a new booking, press 2.", "2"),
+    ("For main menu items on our website, press 3.", "3"),
+    ("For questions about the main menu items on our website, press 3.", "3"),
+    ("To go back to a previous order, press 4.", "4"),
+    ("To go back to previous orders and invoices, press 4.", "4"),
+    ("To return a product and get a refund, press 5.", "5"),
+    ("To start a new order then track it, press 6.", "6"),
+    ("To go back to your account page, press 7.", "7"),
+])
+def test_navigation_words_inside_a_longer_choice_are_not_replays(prompt, key):
+    from zeroout.menu_text import option_replays
+    assert option_replays("", key, prompt) is False
+
+
+@pytest.mark.parametrize("prompt,key,stored", [
+    ("Thank you for calling Acme, how can we help you today? Press 1.", "1", "Billing"),
+    ("Did you know you can manage your account online at our website? Press 1.", "1", "Billing"),
+    ("If you know your party's extension, you may dial it at any time. Press 0.", "0", "Operator"),
+    ("Welcome to Acme. You can manage your account online. Press 1.", "1", "Billing"),
+])
+def test_a_greeting_or_disclosure_is_never_merged_into_a_label(prompt, key, stored):
+    from zeroout.menu_text import fill_label
+    assert fill_label(stored, key, prompt) == stored
+    assert [x["key"] for x in menu_lines(prompt)][-1] == key and len(menu_lines(prompt)[-1]["text"].split()) <= 2
+
+
+def test_a_very_long_merged_label_does_not_override_a_stored_one():
+    from zeroout.menu_text import fill_label
+    long = ("Are you calling about a very long list of things that go on and on and on and on and on? Press 1.")
+    assert fill_label("Orders", "1", long) == "Orders"
+    assert fill_label("", "1", long).startswith("A very long list")
+
+
+@pytest.mark.parametrize("stored,want", [
+    ("billing", "Billing questions"),
+    ("Billing questions", "Billing questions"),
+    ("Return a product", "Return a product"),
+    ("one", "Billing questions"),
+    ("", "Billing questions"),
+])
+def test_the_derived_label_wins_only_when_stored_is_bare_or_shares_a_word_or_is_shifted(stored, want):
+    from zeroout.menu_text import fill_label
+    assert fill_label(stored, "1", COSTCO) == want
+
+
+def test_a_stored_label_that_is_another_keys_sentence_is_shifted_and_loses():
+    from zeroout.menu_text import fill_label
+    assert fill_label("Canada vacation packages", "4", TRAVEL) == "Travel within the United States"
+    assert fill_label("all other international travel", "5", TRAVEL) == "Canada vacation packages"
+    assert fill_label("Return a product", "4", TRAVEL) == "Return a product"
+
+
+@pytest.mark.parametrize("prompt,key,stored,want", [
+    ("If you are a new customer, press 2.", "2", "New customer", "New customer"),
+    ("If you are calling about sales, press 1 for more options.", "1", "Sales", "Sales"),
+    ("If you are an existing member, press 3.", "3", "", "Existing member"),
+    ("If you are calling for billing, press 4.", "4", "", "Billing"),
+    ("If you are calling regarding a claim, press 5.", "5", "", "A claim"),
+])
+def test_if_you_are_frames_are_stripped(prompt, key, stored, want):
+    from zeroout.menu_text import fill_label
+    assert fill_label(stored, key, prompt) == want
+
+
+SUPPORT = "For billing. Press 1. For technical support. Press 2. For returns. Press 3."
+
+
+def test_a_stored_label_overlapping_another_keys_label_is_shifted_not_compared_for_equality():
+    from zeroout.menu_text import fill_label
+    assert fill_label("tech support", "1", SUPPORT) == "Billing"
+    assert fill_label("", "2", SUPPORT) == "Technical support"
+    assert fill_label("tech support", "2", SUPPORT) == "Technical support"
+
+
+def test_a_stored_label_that_overlaps_its_own_and_another_keys_derived_label_gets_its_own():
+    from zeroout.menu_text import fill_label
+    text = "For billing questions, press 1. For billing disputes, press 2."
+    assert fill_label("Billing", "1", text) == "Billing questions"
+    assert fill_label("Billing", "2", text) == "Billing disputes"
+
+
+def test_an_unrelated_stored_label_survives_whatever_other_keys_say():
+    from zeroout.menu_text import fill_label
+    text = "To speak with a representative, press 0. For billing, press 1."
+    assert fill_label("Agent", "0", text) == "Agent"
+    assert fill_label("agent", "0", text) == "agent"
+
+
+def test_punctuation_and_case_do_not_hide_a_shared_word():
+    from zeroout.menu_text import fill_label
+    assert fill_label("BILLING!", "1", SUPPORT) == "Billing"
+    assert fill_label("the option", "1", SUPPORT) == "the option"  # only stop words: nothing shared
+
+
+def test_the_travel_fixture_gives_every_key_its_derived_label_and_only_the_star_replays():
+    from zeroout.menu_text import fill_label, option_replays
+    want = {"1": "Rental cars", "2": "Cruises", "3": "Specialty travel or guided vacations",
+            "4": "Travel within the United States", "5": "Canada vacation packages",
+            "6": "All other international travel",
+            "7": "Travel insurance or if you are in need of in-travel or post-travel assistance",
+            "*": "Repeat these options"}
+    shifted = {"3": "travel within the United States", "4": "Canada vacation packages",
+               "5": "all other international travel", "6": "travel insurance or if", "7": "To repeat these options"}
+    for k, label in want.items():
+        assert fill_label(shifted.get(k, ""), k, TRAVEL) == label
+    assert [k for k in want if option_replays(shifted.get(k, ""), k, TRAVEL)] == ["*"]

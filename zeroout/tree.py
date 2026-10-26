@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from . import db
-from .menu_text import fill_label, replays_menu
+from .menu_text import fill_label, option_replays
 from .models import Observation
 
 MAX_CORRECTION = 10.0
@@ -267,16 +267,17 @@ def unexplored(conn: sqlite3.Connection, company_id: int, max_depth: int) -> lis
         rows = {r["path"]: r for r in conn.execute(
             "SELECT path, status, options_json, prompt_text FROM nodes WHERE company_id = ?", (company_id,))}
 
-    def label(path: str) -> str:
+    def replays(path: str) -> bool:
+        """The label the transcript gives that key decides; the stored one only when nothing can be derived."""
         parent = rows.get(path.rpartition(".")[0])
         for o in json.loads(parent["options_json"] or "[]") if parent else ():
             if o["key"] == path.rpartition(".")[2]:
-                return fill_label(o["label"], o["key"], parent["prompt_text"])
-        return ""
+                return option_replays(o["label"], o["key"], parent["prompt_text"])
+        return False
 
     def replay(path: str) -> bool:
         parts = path.split(".")
-        return any(replays_menu(label(".".join(parts[:i]))) for i in range(1, len(parts) + 1))
+        return any(replays(".".join(parts[:i])) for i in range(1, len(parts) + 1))
 
     paths = [p for p, r in rows.items()
              if r["status"] in ("unexplored", "stale") and p != "" and _depth(p) <= max_depth and not replay(p)]
@@ -298,20 +299,22 @@ def tree_json(conn: sqlite3.Connection, company_id: int) -> dict | None:
         if p != "":
             kids.setdefault(p.rpartition(".")[0], []).append(p)
 
-    def build(path: str, key: str, label: str) -> dict:
+    def build(path: str, key: str, label: str, said_replay: bool = False) -> dict:
         r = rows[path]
-        options = [{"key": o["key"], "label": fill_label(o["label"], o["key"], r["prompt_text"])}
-                   for o in json.loads(r["options_json"] or "[]")]
+        stored = json.loads(r["options_json"] or "[]")
+        options = [{"key": o["key"], "label": fill_label(o["label"], o["key"], r["prompt_text"]),
+                    "replays": option_replays(o["label"], o["key"], r["prompt_text"])} for o in stored]
         labels = {o["key"]: o["label"] for o in options}
+        replay_keys = {o["key"] for o in options if o["replays"]}
         children = []
         for c in sorted(kids.get(path, []), key=lambda p: p.rpartition(".")[2]):
             k = c.rpartition(".")[2]
-            children.append(build(c, k, labels.get(k, "")))
+            children.append(build(c, k, labels.get(k, ""), k in replay_keys))
         return {
             "path": path, "key": key, "label": label,
             "prompt_text": r["prompt_text"],
             "options": options,
-            "replays": replays_menu(label),
+            "replays": said_replay,
             "status": r["status"], "outcome": r["outcome"],
             "confirmations": r["confirmations"], "last_confirmed": r["last_confirmed"],
             "children": children,

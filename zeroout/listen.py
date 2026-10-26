@@ -52,6 +52,8 @@ Reply with ONLY a JSON object of this shape:
   Correct obvious speech-recognition misspellings of common words and brand names (for example
   "Wholsale" for "Wholesale") in prompt_text and in labels, and change nothing else: do not
   reword, reorder or summarize.
+  When a sentence names a choice and the next sentence is only "Press N", the label belongs to N:
+  it is the words before the key phrase. Never pair a key with the sentence that follows it.
 - options: each keypad choice offered ("0"-"9", "*", "#") with its label as heard. Empty if none.
 - prompt_seconds: the end time, taken from the transcript's timestamps, of the line after
   which the menu has finished offering its options and would accept a key press. Use the

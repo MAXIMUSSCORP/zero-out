@@ -7,7 +7,7 @@ from typing import Callable
 
 from . import db
 from .llm import chat_json
-from .menu_text import fill_label, replays_menu
+from .menu_text import fill_label
 from .models import VALID_KEYS, Option
 from .tree import tree_json
 
@@ -81,7 +81,7 @@ def _prune(node: dict) -> dict:
     gone = {c["key"] for c in node["children"] if c["replays"]}
     return {
         **node,
-        "options": [o for o in node["options"] if o["key"] not in gone and not replays_menu(o["label"])],
+        "options": [o for o in node["options"] if o["key"] not in gone and not o.get("replays")],
         "children": [_prune(c) for c in node["children"] if not c["replays"]],
     }
 

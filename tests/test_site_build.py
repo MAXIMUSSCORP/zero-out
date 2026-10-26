@@ -502,7 +502,7 @@ def test_a_replay_option_keeps_its_row_and_says_it_replays_a_menu(dirs):
     site_build.build(trees, out, today=TODAY)
     html = page(out, "8885550199")
     assert html.count("Replays a menu") == 1
-    assert ('<li><span class="key sm">*</span><span class="t">To repeat this information</span>'
+    assert ('<li><span class="key sm">*</span><span class="t">Repeat this information</span>'
             ' <span class="state">Replays a menu</span></li>') in html
     assert '<li><span class="key sm">1</span><span class="t">Billing</span></li>' in html
 
@@ -517,11 +517,11 @@ def test_bare_labels_in_community_files_are_filled_from_the_prompt(dirs):
     ])
     site_build.build(trees, out, today=TODAY)
     html = page(out, "8885550199")
-    for k, label in (("1", "billing questions"), ("5", "Costco Travel"), ("7", "Option 7")):
+    for k, label in (("1", "Billing questions"), ("5", "Costco Travel"), ("7", "Option 7")):
         assert f'<li><span class="key sm">{k}</span><span class="t">{label}</span></li>' in html
-    assert ('<li><span class="key sm">*</span><span class="t">repeat this information</span>'
+    assert ('<li><span class="key sm">*</span><span class="t">Repeat this information</span>'
             ' <span class="state">Replays a menu</span></li>') in html
-    assert '<span class="t">cruises</span>' in html
+    assert '<span class="t">Cruises</span>' in html
     assert '</span> Costco Travel <span class="state">' in html  # the node's own heading, from its parent's prompt
 
 
@@ -565,3 +565,13 @@ def test_spoken_examples_are_escaped(dirs):
     site_build.build(trees, out, today=TODAY)
     html = page(out, "8885550199")
     assert "<img" not in html and "<b>" not in html and "&lt;img src=x" in html
+
+
+def test_a_stored_replay_label_still_says_replays_a_menu_when_the_transcript_derives_something_else(dirs):
+    trees, out = dirs
+    put(trees, "8885550199", "a", "2026-10-01", [
+        obs(text="To return to the previous, press the pound key. For billing press 1.", keys=("#", "1"),
+            labels={"#": "Return to the previous menu", "1": "Billing"})])
+    site_build.build(trees, out, today=TODAY)
+    html = page(out, "8885550199")
+    assert html.count("Replays a menu") == 1 and 'key sm">#</span>' in html

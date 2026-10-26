@@ -218,7 +218,7 @@ def test_tree_json_nests():
     t = tree.tree_json(conn, cid)
     assert t["path"] == "" and t["key"] == "" and t["label"] == ""
     assert t["status"] == "mapped" and t["outcome"] == "menu"
-    assert t["options"] == [{"key": "2", "label": "opt2"}, {"key": "1", "label": "opt1"}]
+    assert t["options"] == [{"key": "2", "label": "opt2", "replays": False}, {"key": "1", "label": "opt1", "replays": False}]
     assert [c["path"] for c in t["children"]] == ["1", "2"]
     c1 = t["children"][0]
     assert c1["key"] == "1" and c1["label"] == "opt1" and c1["status"] == "mapped"
@@ -640,7 +640,7 @@ def test_tree_json_fills_bare_labels_from_the_parent_prompt():
     costco_root(conn, cid, rid, {"1": "one", "5": "", "7": "press 7", "*": "star"})
     t = tree.tree_json(conn, cid)
     assert {c["key"]: c["label"] for c in t["children"]} == {
-        "1": "billing questions", "5": "Costco Travel", "7": "Option 7", "*": "repeat this information"}
+        "1": "Billing questions", "5": "Costco Travel", "7": "Option 7", "*": "Repeat this information"}
     assert {o["key"]: o["label"] for o in t["options"]} == {c["key"]: c["label"] for c in t["children"]}
     assert db.get_node(conn, cid, "")["options_json"].count('"label": ""') == 1  # the stored data is untouched
 
@@ -650,3 +650,39 @@ def test_a_star_labelled_only_star_is_recognized_as_a_replay_from_its_prompt_sen
     costco_root(conn, cid, rid, {"1": "one", "*": "star"})
     assert tree.unexplored(conn, cid, 4) == ["1"]
     assert {c["key"]: c["replays"] for c in tree.tree_json(conn, cid)["children"]} == {"1": False, "*": True}
+
+
+TRAVEL = ("Thank you for calling Costco Travel. For rental cars, press 1. For cruises, press 2. "
+          "For specialty travel or guided vacations. Press 3. For travel within the United States. Press 4. "
+          "For Canada vacation packages. Press 5. For all other international travel. Press 6. "
+          "For travel insurance or if you are in need of in-travel or post-travel assistance. Press 7. "
+          "To repeat these options, press the star key.")
+
+
+def test_shifted_stored_labels_are_corrected_from_the_transcript_at_read_time():
+    conn, cid, rid = setup()
+    stored = {"1": "rental cars", "2": "cruises", "3": "travel within the United States",
+              "4": "Canada vacation packages", "5": "all other international travel",
+              "6": "travel insurance or if", "7": "", "*": "star"}
+    m(conn, cid, rid, "", menu("Press 5", ("5",)))
+    m(conn, cid, rid, "5", Observation(TRAVEL, [Option(k, v) for k, v in stored.items()], "menu", 3.0))
+    node = next(c for c in tree.tree_json(conn, cid)["children"] if c["key"] == "5")
+    assert {c["key"]: c["label"] for c in node["children"]} == {
+        "1": "Rental cars", "2": "Cruises", "3": "Specialty travel or guided vacations",
+        "4": "Travel within the United States", "5": "Canada vacation packages",
+        "6": "All other international travel",
+        "7": "Travel insurance or if you are in need of in-travel or post-travel assistance",
+        "*": "Repeat these options"}
+    assert {c["key"] for c in node["children"] if c["replays"]} == {"*"}
+    assert "5.*" not in tree.unexplored(conn, cid, 4) and "5.3" in tree.unexplored(conn, cid, 4)
+
+
+def test_the_derived_label_decides_a_replay_and_a_shifted_stored_label_cannot_hide_a_real_option():
+    conn, cid, rid = setup()
+    rental = ("If you need assistance, please press pound to continue. For bookings, press 1. "
+              "To repeat these options, press the star key. To return to the previous, press the pound key.")
+    m(conn, cid, rid, "", Observation(rental, [Option("#", "Return to the previous menu"),
+                                               Option("1", "To repeat these options"), Option("*", "")], "menu", 3.0))
+    kids = {c["key"]: c for c in tree.tree_json(conn, cid)["children"]}
+    assert kids["#"]["replays"] is True and kids["*"]["replays"] is True and kids["1"]["replays"] is False
+    assert tree.unexplored(conn, cid, 4) == ["1"]

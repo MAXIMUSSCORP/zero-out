@@ -615,3 +615,10 @@ def test_prompt_asks_for_misspellings_fixed_and_nothing_else_changed():
     from zeroout.listen import PROMPT
     assert "Correct obvious speech-recognition misspellings of common words and brand names" in PROMPT
     assert "in prompt_text and in labels" in PROMPT and "do not\n  reword, reorder or summarize" in PROMPT
+
+
+def test_prompt_pairs_a_split_press_sentence_with_the_words_before_it():
+    from zeroout.listen import PROMPT
+    assert 'the next sentence is only "Press N", the label belongs to N' in PROMPT
+    assert "the words before the key phrase" in PROMPT
+    assert "Never pair a key with the sentence that follows it." in PROMPT

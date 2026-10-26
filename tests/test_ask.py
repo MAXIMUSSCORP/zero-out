@@ -416,4 +416,15 @@ def test_unsure_answer_lists_top_options_with_derived_labels():
                       [Option("1", "press 1"), Option("5", "")], "menu", 3.0)
     m(conn, cid, rid, "", obs)
     a = ask(conn, S(), cid, "q", chat=FakeChat({"path": None, "explanation": ""}))
-    assert [(o.key, o.label) for o in a.top_options] == [("1", "billing questions"), ("5", "Costco Travel")]
+    assert [(o.key, o.label) for o in a.top_options] == [("1", "Billing questions"), ("5", "Costco Travel")]
+
+
+def test_options_that_replay_are_pruned_from_what_the_model_sees_even_with_a_blank_stored_label():
+    conn, cid, rid = setup()
+    obs = Observation("For billing, press 1. To repeat these options, press the star key.",
+                      [Option("1", "billing"), Option("*", "")], "menu", 3.0)
+    m(conn, cid, rid, "", obs)
+    chat = FakeChat({"path": "1", "explanation": "e", "match": "exact"})
+    ask(conn, S(), cid, "billing", chat=chat)
+    sent = chat.calls[0][2][-1]["content"]
+    assert "Repeat these options" not in sent and "Billing" in sent
