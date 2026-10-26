@@ -1,4 +1,5 @@
-"""Per-company coverage and cost: python -m eval.report"""
+"""Per-company coverage and cost: python -m eval.report [--db PATH]"""
+import argparse
 import sqlite3
 
 from zeroout.config import load_settings
@@ -25,9 +26,12 @@ def rows(conn: sqlite3.Connection) -> list[dict]:
     return out
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    ap = argparse.ArgumentParser(prog="python -m eval.report")
+    ap.add_argument("--db", help="database to read (default: DB_PATH from settings)")
+    args = ap.parse_args(argv)
     print(f"{'company':<28}{'mapped':>8}{'crawl $':>10}{'minutes':>10}{'confirmed':>11}")
-    for r in rows(connect(load_settings().db_path)):
+    for r in rows(connect(args.db or load_settings().db_path)):
         print(f"{r['name'][:27]:<28}{r['mapped']:>8}{r['cost_usd']:>10.2f}{r['minutes']:>10.1f}"
               f"{r['confirmation_rate']:>10.0%}")
 
