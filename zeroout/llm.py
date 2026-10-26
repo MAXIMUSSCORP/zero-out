@@ -34,17 +34,19 @@ def chat_json(
     messages: list[dict],
     *,
     client: Any = None,
+    temperature: float | None = None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict | None:
     client = client or openai.OpenAI(base_url=settings.tf_base_url, api_key=settings.tf_api_key, timeout=60)
     msgs = list(messages)
+    extra = {} if temperature is None else {"temperature": temperature}
     json_retried = False
     delay = BASE_DELAY
     tries = 0
     while True:
         try:
             resp = client.chat.completions.create(
-                model=model, messages=msgs, response_format={"type": "json_object"}
+                model=model, messages=msgs, response_format={"type": "json_object"}, **extra
             )
         except openai.RateLimitError as e:
             tries += 1

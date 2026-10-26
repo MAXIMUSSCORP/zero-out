@@ -18,6 +18,12 @@ assert.deepEqual(place(btn(300, 40), { w: 320, h: 760 }, view), { top: 800 - 760
 assert.deepEqual(place(btn(1200, 200), size, view), { top: 230, left: 1280 - 320 - 16 });
 // clamped from the left edge
 assert.deepEqual(place(btn(2, 200), size, view), { top: 230, left: 16 });
+// vertical: a tall popover near the bottom moves up to fit
+assert.deepEqual(place(btn(300, 760), { w: 320, h: 500 }, view), { top: 760 - 8 - 500, left: 300 });
+// one taller than the window starts at the top margin (the stylesheet scrolls it from there)
+assert.equal(place(btn(300, 400), { w: 320, h: 900 }, view).top, 16);
+// one that fits below stays below even when it nearly touches the bottom margin
+assert.equal(place(btn(300, 650), { w: 320, h: 100 }, view).top, 680);
 // a window narrower than the popover still keeps the left margin
 assert.equal(place(btn(100, 200), size, { w: 300, h: 800 }).left, 16);
 

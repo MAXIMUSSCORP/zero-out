@@ -100,3 +100,64 @@ def replays_menu(label) -> bool:
         return isinstance(label, str) and _REPLAY.search(label) is not None
     except Exception:
         return False
+
+
+# A label that is only the key (or its phrase) says nothing; the words that belong to the key are in the
+# sentence of the prompt that asks for it.
+_BARE = re.compile(
+    rf"^(?:say\s+or\s+)?(?:{_VERBS}\s+)?(?:the\s+)?(?:(?:number|digit|key)\s+)?"
+    rf"(?:[0-9]|{'|'.join(_WORDS)}|hash|[*#])$",
+    re.IGNORECASE | re.ASCII)
+_KEY_PHRASE = re.compile(r"(?:\bsay\s+or\s+)?" + _KEY.pattern, re.IGNORECASE | re.ASCII)
+_EDGE = " ,;.:!?-"
+_JOIN = r"(?:for|to|para|or|and|y|o|a)"
+_LEAD_WORD = re.compile(rf"^{_JOIN}\s+", re.IGNORECASE | re.ASCII)
+_TAIL_WORD = re.compile(rf"\s+{_JOIN}$", re.IGNORECASE | re.ASCII)
+
+
+def _edges(text):
+    """A stretch of a sentence with the punctuation and joining words (and, or, for, to) trimmed off both ends."""
+    s = text.strip(_EDGE)
+    while True:
+        t = _TAIL_WORD.sub("", _LEAD_WORD.sub("", s)).strip(_EDGE)
+        if t == s:
+            return s
+        s = t
+
+
+def _derive(key, prompt_text):
+    """The words that belong to this key, never the neighbouring option's. A sentence that starts with its key
+    phrase ("Press 1 for billing and press 2 ...") puts each label after its key phrase, up to the next one;
+    any other ("For billing, press 1, for support, press 2") puts it before, back to the previous one."""
+    for line in menu_lines(prompt_text, [key]):
+        if line["key"] != key:
+            continue
+        text = line["text"]
+        found = list(_KEY_PHRASE.finditer(text))
+        mine = next((i for i, m in enumerate(found) if _key_of(m) == key), None)
+        if mine is None:
+            continue
+        if not text[:found[0].start()].strip(_EDGE):
+            end = found[mine + 1].start() if mine + 1 < len(found) else len(text)
+            side = text[found[mine].end():end]
+        else:
+            start = found[mine - 1].end() if mine else 0
+            side = text[start:found[mine].start()]
+        s = _edges(side)
+        if s and not _BARE.match(s) and not _KEY_PHRASE.search(s):
+            return s
+    return ""
+
+
+def fill_label(label, key, prompt_text) -> str:
+    """An option's label, with an empty or key only one replaced by the words its prompt sentence gives it
+    ("For Costco Travel, press 5." gives "Costco Travel"), else "Option <key>". Never raises."""
+    try:
+        text = label if isinstance(label, str) else ""
+        if text.strip() and not _BARE.match(text.strip(" .,;:!?")):
+            return text
+        key = str(key)
+        derived = _derive(key, prompt_text) if isinstance(prompt_text, str) else ""
+        return derived or f"Option {key}"
+    except Exception:
+        return label if isinstance(label, str) else ""

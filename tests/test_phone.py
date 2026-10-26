@@ -117,10 +117,16 @@ def test_depth_limit():
     assert phone.next_step(conn, cid, "1", max_depth=2).path == "1.1"
 
 
-def test_label_is_empty_when_parent_gave_none():
+def test_label_names_the_key_when_parent_gave_none():
     conn, cid, rid = setup()
     seed(conn, cid, rid, "", Observation("x", [Option("5", "")], "menu", 1.0))
-    assert phone.next_step(conn, cid, "").label == ""
+    assert phone.next_step(conn, cid, "").label == "Option 5"
+
+
+def test_step_label_comes_from_the_prompt_when_the_stored_label_is_only_a_key():
+    conn, cid, rid = setup()
+    seed(conn, cid, rid, "", Observation("For Costco Travel, press 5.", [Option("5", "five")], "menu", 1.0))
+    assert phone.next_step(conn, cid, "").label == "Costco Travel"
 
 
 def test_skipped_path_is_passed_over():

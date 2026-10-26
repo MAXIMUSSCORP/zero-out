@@ -130,6 +130,11 @@ main section[id],main .hero[id]{scroll-margin-top:72px}
 .btn.quiet:hover{text-decoration-thickness:2px}
 .btn.small{min-height:36px;padding:0 16px;font-size:15px}
 .btn:disabled,button:disabled{opacity:.4;cursor:not-allowed}
+/* The answer box while the model works: a line saying so, the old answer dimmed, the form locked. */
+.htmx-indicator{display:none;color:var(--text-low);margin-top:16px}
+.htmx-indicator.htmx-request{display:block}
+.ask.htmx-request ~ #answer{opacity:.4}
+.ask input:disabled{opacity:.6}
 .htmx-request.btn,.htmx-request .btn,.htmx-request button{opacity:.55;pointer-events:none}
 .actions{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
 form.inline{display:inline-flex}
@@ -229,13 +234,17 @@ a.tile:hover{background:var(--el)}
 /* ---------- info buttons and their popovers: a floating layer, the one place with a shadow ---------- */
 
 .tip{display:inline-flex;align-items:center;gap:6px}
-.section-head .title{display:flex;align-items:center;gap:6px}
+.section-head .title,.choice .title{display:flex;align-items:center;gap:6px}
+.choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:32px;max-width:760px}
+.choice{display:flex;flex-direction:column;gap:10px;padding:24px}
+.choice p{color:var(--text-low)}
+.choice .actions{margin-top:auto;padding-top:14px}
 .info{position:relative;flex:none;width:22px;height:22px;padding:0;border-radius:50%;
   border:1.5px solid var(--text-dim);background:transparent;color:var(--text-low);
   font-size:13px;font-weight:600;line-height:1;cursor:pointer}
 .info::before{content:"";position:absolute;inset:-11px}
 .info:hover{color:var(--text);border-color:var(--text)}
-.pop{max-width:320px;margin:auto;padding:16px 18px;border:1px solid var(--line);border-radius:14px;
+.pop{max-width:320px;max-height:calc(100vh - 32px);overflow:auto;margin:auto;padding:16px 18px;border:1px solid var(--line);border-radius:14px;
   background:var(--app);color:var(--text);font-size:15px;line-height:1.5;box-shadow:0 10px 32px rgba(0,0,0,.18)}
 
 /* The phone page's Heard panel: its parts get a steady gap, the options label sits close to its list. */
@@ -303,7 +312,8 @@ audio{display:block;width:100%;max-width:360px;height:40px}
   .form-row.add{flex-direction:column;align-items:stretch}
   .form-row.add .field{flex:none}
   .form-row.add > button{margin-top:0;margin-bottom:0}
-  .pop{position:fixed;inset:auto 16px 16px 16px;margin:0;width:auto;max-width:none;padding:22px}
+  .pop{position:fixed;inset:auto 16px 16px 16px;margin:0;width:auto;max-width:none;max-height:calc(100vh - 32px);overflow:auto;padding:22px}
+  .choices{grid-template-columns:1fr}
   .note{margin-top:72px}
 }
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}html{scroll-behavior:auto}}

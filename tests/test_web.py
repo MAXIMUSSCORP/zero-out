@@ -708,6 +708,7 @@ def test_owner_mode_verify_routes_404(env):
 
 
 def test_owner_mode_page_shows_number_and_hides_forms(env):
+    mapped(env)
     t = opened(env).get(f"/c/{env.cid}").text
     assert "We call you at +1 (415) 555-0100, then dial the company and press the keys." in t
     assert "/verify/start" not in t and "/verify/check" not in t
@@ -726,6 +727,7 @@ def test_hosted_app_refuses_owner_number(env):
 
 
 def test_verify_mode_page_keeps_forms(env, tmp_path):
+    mapped(env)
     st = settings(tmp_path)
     st.twilio_verify_sid = "VA1"
     t = TestClient(env.build(st)).get(f"/c/{env.cid}").text
@@ -733,6 +735,7 @@ def test_verify_mode_page_keeps_forms(env, tmp_path):
 
 
 def test_page_without_twilio_points_to_setup(env):
+    mapped(env)
     t = env.client.get(f"/c/{env.cid}").text
     assert "Connect me needs Twilio. Run zeroout setup to add it." in t
     assert "/verify/start" not in t
@@ -956,6 +959,7 @@ def test_confirmed_dates_are_plain_on_the_page_and_in_answers(env):
 
 
 def test_connect_needs_twilio_points_to_settings_when_local(env):
+    mapped(env)
     t = opened_no_owner(env).get(f"/c/{env.cid}").text
     assert "Connect me needs Twilio. Add it in" in t and 'href="/settings"' in t
     assert "zeroout setup" not in t
@@ -982,7 +986,7 @@ def test_map_automatically_is_disabled_with_the_reason_when_twilio_is_missing(en
     app, _ = bare_app(env)
     t = TestClient(app).get(f"/c/{env.cid}").text
     assert re.search(r'<button class="btn secondary" disabled>Map automatically</button>', t)
-    assert '<span class="hint">Needs Twilio.</span>' in t and "/settings" not in t  # hosted
+    assert '<p class="hint">Needs Twilio.</p>' in t and "/settings" not in t  # hosted
 
 
 def test_map_automatically_hint_links_to_settings_locally(env):
@@ -1176,7 +1180,7 @@ def test_odd_stored_number_is_shown_as_it_is_and_escaped(env):
 
 
 def toc_of(html):
-    nav = re.search(r'<nav class="toc[^"]*" aria-label="On this page">(.*?)</nav>', html, re.S)
+    nav = re.search(r'<nav class="toc[^"]*" aria-label="On this page"[^>]*>(.*?)</nav>', html, re.S)
     if nav is None:
         return None
     return re.findall(r'<a href="#([^"]+)">([^<]+)</a>', nav.group(1))
@@ -1242,6 +1246,7 @@ def verify_app(env, **kw):
 
 
 def test_connect_section_has_one_phone_field_and_a_send_code_button(env):
+    mapped(env)
     t = TestClient(verify_app(env)).get(f"/c/{env.cid}").text
     assert t.count("Your phone number") == 1 and 'hx-post="/verify/start"' in t
     assert 'hx-post="/verify/check"' not in t and "Send code" in t
@@ -1249,6 +1254,7 @@ def test_connect_section_has_one_phone_field_and_a_send_code_button(env):
 
 
 def test_local_connect_section_points_to_settings_for_a_saved_number(env):
+    mapped(env)
     st = dataclasses.replace(env.st, twilio_verify_sid="VA1", owner_number="")
     c = TestClient(env.build(st, local=web.LocalGuard(PORT, TOKEN)), base_url=LOCAL)
     c.get(f"/start?t={TOKEN}")
@@ -1314,3 +1320,69 @@ def test_pending_number_is_per_session(env):
 
 def test_verify_form_is_404_in_owner_mode(env):
     assert opened(env).get("/verify/form").status_code == 404
+
+
+def test_unmapped_company_hides_connect_me_and_says_to_map_first(env):
+    for c in (env.client, TestClient(verify_app(env)), opened(env)):
+        t = c.get(f"/c/{env.cid}").text
+        sec = t[t.index('id="s-connect"'):t.index('</section>', t.index('id="s-connect"'))]
+        assert "Map this menu first. Connect me needs to know which keys to press." in sec
+        assert "/verify/start" not in t and "/connect" not in t and "Send code" not in t
+
+
+def test_mapped_company_shows_connect_me_everywhere_it_is_heard(env):
+    mapped(env)
+    t = TestClient(verify_app(env)).get(f"/c/{env.cid}").text
+    assert "Map this menu first" not in t and "/verify/start" in t
+    assert t.count(f'action="/c/{env.cid}/connect"') >= 1
+
+
+def test_an_unheard_root_counts_as_unmapped(env):
+    env.conn.execute("INSERT INTO nodes (company_id, path, status) VALUES (?, '', 'unexplored')", (env.cid,))
+    env.conn.commit()
+    t = env.client.get(f"/c/{env.cid}").text
+    assert "Map this menu first" in t and f'action="/c/{env.cid}/connect"' not in t
+
+
+def test_the_two_ways_to_map_are_side_by_side_tiles_with_a_line_each(env):
+    t = opened(env).get(f"/c/{env.cid}").text
+    assert t.count('class="tile choice"') == 2 and 'class="choices"' in t
+    assert "You call on speaker and this computer listens." in t
+    assert "Zero-Out places the calls through your Twilio account and maps the whole menu." in t
+    assert t.index("With your phone") < t.index("Automatically")
+    st = dataclasses.replace(env.st, owner_number="")
+    bare = web.create_app(st, env.conn, listen=env.menu.listen, same=YES, local=web.LocalGuard(PORT, TOKEN))
+    c = TestClient(bare, base_url=LOCAL)
+    c.get(f"/start?t={TOKEN}")
+    b = c.get(f"/c/{env.cid}").text
+    assert "Needs Twilio." in b and "disabled>Map automatically" in b  # the reason stays on the second tile
+    assert b.index("Needs Twilio.") > b.index("Automatically")
+    assert env.client.get(f"/c/{env.cid}").text.count('class="tile choice"') == 1  # hosted: no phone mode
+
+
+def test_ask_form_shows_a_working_state_and_locks_itself(env):
+    t = env.client.get(f"/c/{env.cid}").text
+    assert 'hx-indicator="#asking"' in t and 'hx-disabled-elt="#ask-q, #ask-go"' in t
+    assert "Looking through Acme's map" in t and 'id="asking" class="htmx-indicator"' in t
+    assert 'id="ask-q"' in t and 'id="ask-go"' in t
+
+
+def test_ask_indicator_name_is_escaped(env):
+    env.conn.execute("UPDATE companies SET name = '<i>x</i>' WHERE id = ?", (env.cid,))
+    env.conn.commit()
+    t = env.client.get(f"/c/{env.cid}").text
+    assert "Looking through &lt;i&gt;x&lt;/i&gt;" in t and "Looking through <i>" not in t
+
+
+def test_phone_toc_nav_is_hidden_while_only_call_is_usable(env):
+    t = opened(env).get(f"/c/{env.cid}/phone").text
+    assert re.search(r'<nav class="toc[^"]*" aria-label="On this page" hidden>', t)
+    t = opened(env).get(f"/c/{env.cid}").text
+    assert not re.search(r'<nav class="toc[^"]*" aria-label="On this page" hidden>', t)
+
+
+def test_needs_twilio_hint_sits_above_the_disabled_button(env):
+    st = dataclasses.replace(env.st, owner_number="")
+    c = TestClient(web.create_app(st, env.conn, listen=env.menu.listen, same=YES))
+    t = c.get(f"/c/{env.cid}").text
+    assert t.index("Needs Twilio.") < t.index("disabled>Map automatically")

@@ -38,3 +38,13 @@ def test_clip_lines_only_count_the_options_heard(env, fake):
 def test_clip_lines_for_empty_prompt_is_empty(env, fake):
     fake.obs = Observation("", [], "hold", 1.0)
     assert clip(local_client(env), env, path="").json()["heard"]["lines"] == []
+
+
+def test_ask_shows_closest_match_line_only_when_closest(env):
+    from tests.test_web import mapped
+    mapped(env)
+    env.answer = {"path": "2", "explanation": "Press 2 for an agent", "match": "closest"}
+    t = env.client.post(f"/c/{env.cid}/ask", data={"question": "a person"}).text
+    assert "Closest match on this map" in t and t.index("Closest match") < t.index("Press 2 for an agent")
+    env.answer = {"path": "2", "explanation": "Press 2 for an agent", "match": "exact"}
+    assert "Closest match" not in env.client.post(f"/c/{env.cid}/ask", data={"question": "agent"}).text

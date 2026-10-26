@@ -9,8 +9,8 @@
 {% set lit = (step.press_now or (step.keys[0] if step.keys else '')) if step else '' %}
 <a class="back" href="/c/{{ company.id }}">&lsaquo; {{ company.name }}</a>
 <div class="hero" id="call">
-  <h1 id="headline" class="display">{% if not step %}Everything reachable is mapped{% elif step.press_now %}Press {{ step.press_now }} now{% elif step.keys %}Map {{ step.keys | join(', then ') }}{% else %}Map the main menu{% endif %}</h1>
-  <p id="lede" class="lede">{% if not step %}Call only if you want to check whether the menu has changed.{% elif step.keys and lab and not step.press_now %}{{ lab | truncate(90, True, '…', 0) }}{% else %}Call <span class="tel">{{ company.number | tel }}</span> on your phone, on speaker, next to this computer.{% endif %}</p>
+  <h1 id="headline" class="display">{% if voice %}This line uses a voice assistant{% elif not step %}Everything reachable is mapped{% elif step.press_now %}Press {{ step.press_now }} now{% elif step.keys %}Map {{ step.keys | join(', then ') }}{% else %}Map the main menu{% endif %}</h1>
+  <p id="lede" class="lede">{% if voice %}It asks you to say what you need, so there are no keys to map.{% elif not step %}Call only if you want to check whether the menu has changed.{% elif step.keys and lab and not step.press_now %}{{ lab | truncate(90, True, '…', 0) }}{% else %}Call <span class="tel">{{ company.number | tel }}</span> on your phone, on speaker, next to this computer.{% endif %}</p>
 </div>
 
 <div class="keypad" id="keypad" aria-hidden="true">
@@ -27,7 +27,8 @@
    data-label="{{ step.label if step else '' }}"
    data-number="{{ company.number | tel }}"
    data-company="{{ company.id }}">
-{% if not step and skipped %}Every option Zero-Out could reach is mapped or was skipped. Hang up.
+{% if voice %}Call only to check whether it has changed to a keypad menu.
+{% elif not step and skipped %}Every option Zero-Out could reach is mapped or was skipped. Hang up.
 {% elif not step %}Zero-Out has heard every option it can reach. Options that need a person, account details or speech, that replay a menu, or that sit more than four menus deep are left out.
 {% elif step.press_now %}{% if lab %}{{ lab | truncate(90, True, '…', 0) }}. Then click{% else %}Click{% endif %} Start listening.
 {% elif step.keys %}Call {{ company.number | tel }}, press {{ step.keys | join(', then ') }}, waiting for each menu to finish, then click Start listening right after your last key.

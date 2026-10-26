@@ -250,3 +250,81 @@ def test_replays_menu_never_raises(bad):
 def test_replays_menu_ignores_the_key():
     from zeroout.menu_text import replays_menu
     assert replays_menu("sales") is False and replays_menu("*") is False
+
+
+COSTCO = ("Thank you for calling Costco. For billing questions, press 1. To report a lost or stolen card, press 2. "
+          "Para Espanol, oprima uno. For Costco Travel, press 5. Say or press 6 for the pharmacy. "
+          "To repeat this information, press star.")
+
+
+@pytest.mark.parametrize("label,key,want", [
+    ("", "5", "Costco Travel"),
+    ("one", "1", "billing questions"),
+    ("1", "1", "billing questions"),
+    ("two", "2", "report a lost or stolen card"),
+    ("2", "2", "report a lost or stolen card"),
+    ("press 1", "1", "billing questions"),
+    ("Press 1", "1", "billing questions"),
+    ("Press one", "1", "billing questions"),
+    ("oprima uno", "1", "billing questions"),
+    ("star", "*", "repeat this information"),
+    ("asterisco", "*", "repeat this information"),
+    ("pound", "#", "Option #"),
+    ("", "6", "the pharmacy"),
+    ("", "7", "Option 7"),
+    ("press 9", "9", "Option 9"),
+    ("  ", "5", "Costco Travel"),
+])
+def test_fill_label_derives_a_label_from_the_sentence_for_that_key(label, key, want):
+    from zeroout.menu_text import fill_label
+    assert fill_label(label, key, COSTCO) == want
+
+
+@pytest.mark.parametrize("label", ["billing", "Costco Travel", "press 1 for billing", "Return a product", "1 hour photo"])
+def test_fill_label_keeps_a_real_label(label):
+    from zeroout.menu_text import fill_label
+    assert fill_label(label, "1", COSTCO) == label
+
+
+@pytest.mark.parametrize("args", [(None, "1", None), (5, 1, 7), ("", None, "x"), ("one", "1", ""), ("", "1", b"x")])
+def test_fill_label_never_raises(args):
+    from zeroout.menu_text import fill_label
+    assert isinstance(fill_label(*args), str)
+
+
+def test_fill_label_with_no_prompt_text_names_the_key():
+    from zeroout.menu_text import fill_label
+    assert fill_label("", "3", "") == "Option 3" and fill_label("three", "3", None) == "Option 3"
+
+
+@pytest.mark.parametrize("prompt,key,want", [
+    ("Press 1 for billing and press 2 to repeat this menu.", "1", "billing"),
+    ("Press 1 for billing and press 2 to repeat this menu.", "2", "repeat this menu"),
+    ("For billing press 1 to go back press 2.", "1", "billing"),
+    ("For billing press 1 to go back press 2.", "2", "go back"),
+    ("For sales press 1 for the main menu press 2.", "1", "sales"),
+    ("For sales press 1 for the main menu press 2.", "2", "the main menu"),
+    ("Press 1 for sales, press 2 for support, or press 3 for billing.", "2", "support"),
+    ("Press 1 for sales, press 2 for support, or press 3 for billing.", "3", "billing"),
+    ("For sales, press 1, for support, press 2.", "2", "support"),
+    ("Say or press 6 for the pharmacy.", "6", "the pharmacy"),
+])
+def test_fill_label_takes_only_the_words_that_belong_to_that_key(prompt, key, want):
+    from zeroout.menu_text import fill_label
+    assert fill_label("", key, prompt) == want
+
+
+@pytest.mark.parametrize("prompt,key", [
+    ("Press 1 press 2.", "1"), ("For press 1.", "1"), ("Press 1 and press 2 for sales.", "1"),
+])
+def test_fill_label_never_swallows_a_neighbouring_option(prompt, key):
+    from zeroout.menu_text import fill_label
+    got = fill_label("", key, prompt)
+    assert got == f"Option {key}" or ("press" not in got.lower() and got)
+
+
+def test_a_derived_label_never_turns_a_real_option_into_a_replay():
+    from zeroout.menu_text import fill_label, replays_menu
+    assert not replays_menu(fill_label("", "1", "Press 1 for billing and press 2 to repeat this menu."))
+    assert not replays_menu(fill_label("", "1", "For billing press 1 to go back press 2."))
+    assert replays_menu(fill_label("", "2", "For billing press 1 to go back press 2."))

@@ -29,7 +29,7 @@ from .ask import MAX_QUESTION, ask as ask_question
 from .budget import calls_today, can_spend
 from .config import Settings, load_settings
 from .crawl import crawl
-from .menu_text import menu_lines
+from .menu_text import fill_label, menu_lines
 from .paths import is_toll_free, normalize_number
 from .settings_page import CHECKS_PER_HOUR, READS_PER_HOUR, SettingsPage
 from .tree import tree_json
@@ -452,8 +452,11 @@ def create_app(
         from . import phone
         c = company(cid)
         skipped = frozenset(ph["skip"].get((local.launch, cid), ()))
+        step = phone.next_step(conn, cid, None, skip=skipped)
+        root = db.get_node(conn, cid, "")
         return render(request, "phone.html", company=c, skipped=len(skipped),
-                      step=phone.next_step(conn, cid, None, skip=skipped))
+                      voice=step is None and root is not None and root["status"] == "speech_menu",
+                      step=step)
 
     def step_json(s) -> dict | None:
         if s is None:
@@ -593,7 +596,7 @@ def create_app(
             return JSONResponse({
                 "message": PHONE_CHECK_MSG, "nonce": nonce,
                 "heard": {"outcome": o.outcome, "prompt_text": o.prompt_text,
-                          "options": [{"key": x.key, "label": x.label} for x in o.options],
+                          "options": [{"key": x.key, "label": fill_label(x.label, x.key, o.prompt_text)} for x in o.options],
                           "lines": menu_lines(o.prompt_text, [x.key for x in o.options])}})
         except HTTPException as e:
             return JSONResponse({"error": str(e.detail)}, status_code=e.status_code)
@@ -641,7 +644,7 @@ def create_app(
                 nxt = phone.next_step(conn, cid, path, skip=skip_set(key))
             return JSONResponse(with_skipped(key, {
                 "outcome": kept.outcome,
-                "options": [{"key": o.key, "label": o.label} for o in kept.options],
+                "options": [{"key": o.key, "label": fill_label(o.label, o.key, obs.prompt_text)} for o in kept.options],
                 "result": kept.result,
                 "message": kept.message + (PHONE_MOVED_ON if moved else PHONE_DISPUTED if disputed else ""),
                 "next": step_json(nxt)}))

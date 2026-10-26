@@ -1,7 +1,8 @@
 {% if answer.path %}
 <div class="answer">
   <div class="keys">{% for k in answer.path.split('.') %}{% if not loop.first %}<span class="then">then</span>{% endif %}<span class="key lg">{{ k }}</span>{% endfor %}</div>
-  <p>{{ answer.explanation }}</p>
+{% if answer.closest %}  <p class="low small">Closest match on this map</p>
+{% endif %}  <p>{{ answer.explanation }}</p>
 {% if answer.unheard_end %}  <p class="low small">Zero-Out has heard this option offered, but not yet what plays after you press {{ answer.path.split('.')[-1] }}.</p>{% endif %}
 {% else %}
 <div class="answer">

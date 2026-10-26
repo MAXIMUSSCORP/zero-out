@@ -37,7 +37,12 @@
     return onTocLink ? pin : null;
   }
 
-  var api = { pick: pick, stillPinned: stillPinned, afterPointerDown: afterPointerDown };
+  // An index of one entry is not an index: the nav shows only when two or more entries are usable.
+  function enough(usable) {
+    return usable >= 2;
+  }
+
+  var api = { enough: enough, pick: pick, stillPinned: stillPinned, afterPointerDown: afterPointerDown };
   if (typeof module !== 'undefined') module.exports = api;
   if (typeof document === 'undefined') return;
 
@@ -87,6 +92,7 @@
         if (pin && !entries.some(function (e) { return e.id === pin.id && !e.li.hidden; })) pin = null;
         if (pin) { mark(pin.id); return; }
         var remaining = root.scrollHeight - (y + window.innerHeight);
+        nav.hidden = !enough(entries.filter(function (e) { return !e.li.hidden; }).length);
         var items = entries.filter(function (e) { return !e.li.hidden; }).map(function (e) {
           return { id: e.id, top: target(e).getBoundingClientRect().top };
         });

@@ -595,3 +595,23 @@ def test_no_fallback_when_the_menu_ends_inside_the_first_line():
     words = [w.rstrip(".") for w in MENU_WORDS] * 2  # one long line, no sentence ends or gaps
     first = " ".join(w.rstrip(".") for w in MENU_WORDS[:9])
     assert hear_menu(first, words=words).prompt_text == first
+
+
+def test_parse_stores_labels_as_heard_and_leaves_filling_to_read_time():
+    o = parse_observation(raw(
+        prompt_text="For billing questions, press 1. For Costco Travel, press 5.",
+        options=[{"key": "1", "label": "one"}, {"key": "5", "label": ""}, {"key": "7", "label": "Press 7"}]))
+    assert [(x.key, x.label) for x in o.options] == [("1", "one"), ("5", ""), ("7", "Press 7")]
+
+
+def test_parse_keeps_a_real_label_and_blanks_a_persons_labels():
+    o = parse_observation(raw(options=[{"key": "1", "label": "billing"}]))
+    assert o.options == [Option("1", "billing")]
+    o = parse_observation(raw(outcome="human", prompt_text="Hi this is Dana press 1", options=[{"key": "1", "label": ""}]))
+    assert o.options == [Option("1", "")]
+
+
+def test_prompt_asks_for_misspellings_fixed_and_nothing_else_changed():
+    from zeroout.listen import PROMPT
+    assert "Correct obvious speech-recognition misspellings of common words and brand names" in PROMPT
+    assert "in prompt_text and in labels" in PROMPT and "do not\n  reword, reorder or summarize" in PROMPT

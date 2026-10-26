@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
-const { pick, stillPinned, afterPointerDown } = createRequire(import.meta.url)('../../zeroout/static/toc.js');
+const { enough, pick, stillPinned, afterPointerDown } = createRequire(import.meta.url)('../../zeroout/static/toc.js');
 
 const at = (...tops) => tops.map((top, i) => ({ id: 's' + i, top }));
 
@@ -85,4 +85,10 @@ assert.equal(stillPinned(null, 5), null);
 // a press on the page (the scrollbar, the text) releases the pin; a press on a toc link keeps it
 assert.equal(afterPointerDown(settled, false), null);
 assert.equal(afterPointerDown(settled, true), settled);
+
+// the nav needs two usable entries
+assert.equal(enough(0), false);
+assert.equal(enough(1), false);
+assert.equal(enough(2), true);
+assert.equal(enough(6), true);
 console.log('ok');

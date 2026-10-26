@@ -49,6 +49,9 @@ Reply with ONLY a JSON object of this shape:
 - prompt_text: copy every sentence the system speaks, from its first word to its last, in
   order, as written in the transcript (any language). Do not shorten or summarize, and
   include the sentences that offer the options.
+  Correct obvious speech-recognition misspellings of common words and brand names (for example
+  "Wholsale" for "Wholesale") in prompt_text and in labels, and change nothing else: do not
+  reword, reorder or summarize.
 - options: each keypad choice offered ("0"-"9", "*", "#") with its label as heard. Empty if none.
 - prompt_seconds: the end time, taken from the transcript's timestamps, of the line after
   which the menu has finished offering its options and would accept a key press. Use the

@@ -586,3 +586,46 @@ def test_opening_with_nothing_left_offers_to_map_the_main_menu_again(env, fake):
     assert 'id="start" type="button" class="btn primary" hidden' in t
     assert 'id="skip" type="button" class="btn secondary" hidden' in t
     assert 'class="key lit" data-key' not in t and "Hang up" not in t
+
+
+def voice_root(env, status="speech_menu"):
+    from zeroout import tree
+    tree.ensure_root(env.conn, env.cid)
+    env.conn.execute("UPDATE nodes SET status = ? WHERE company_id = ? AND path = ''", (status, env.cid))
+
+
+def test_a_voice_assistant_root_says_so_instead_of_everything_is_mapped(env, fake):
+    fake.next_step = lambda *a, **k: None
+    voice_root(env)
+    t = local_client(env).get(f"/c/{env.cid}/phone").text
+    assert "This line uses a voice assistant</h1>" in t
+    assert "It asks you to say what you need, so there are no keys to map." in t
+    assert "Call only to check whether it has changed to a keypad menu." in t
+    assert "Everything reachable is mapped" not in t and "heard every option" not in t
+    assert 'id="restart" type="button" class="btn primary">Map the main menu again' in t
+    assert 'class="key lit" data-key' not in t
+
+
+def test_a_voice_root_wins_over_skipped_branches_and_a_mapped_root_does_not_say_it(env, fake):
+    c = local_client(env)
+    fake.next_step = lambda *a, **k: None
+    voice_root(env)
+    act(c, env, "skip", {"path": "9"})
+    assert "This line uses a voice assistant" in c.get(f"/c/{env.cid}/phone").text
+    voice_root(env, "mapped")
+    assert "voice assistant" not in c.get(f"/c/{env.cid}/phone").text
+
+
+def test_a_voice_root_with_a_step_left_still_opens_on_the_step(env, fake):
+    voice_root(env)
+    assert "voice assistant" not in local_client(env).get(f"/c/{env.cid}/phone").text
+
+
+def test_heard_and_kept_options_show_derived_labels(env, fake):
+    fake.obs = Observation("For billing questions, press 1. For Costco Travel, press 5.",
+                           [Option("1", "press 1"), Option("5", "")], "menu", 4.0)
+    c = local_client(env)
+    j = clip(c, env, path="").json()
+    want = [{"key": "1", "label": "billing questions"}, {"key": "5", "label": "Costco Travel"}]
+    assert j["heard"]["options"] == want
+    assert act(c, env, "keep", {"nonce": j["nonce"]}).json()["options"] == want

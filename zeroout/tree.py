@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from . import db
-from .menu_text import replays_menu
+from .menu_text import fill_label, replays_menu
 from .models import Observation
 
 MAX_CORRECTION = 10.0
@@ -265,13 +265,13 @@ def unexplored(conn: sqlite3.Connection, company_id: int, max_depth: int) -> lis
     one of them, nor is anything under it."""
     with db.LOCK:
         rows = {r["path"]: r for r in conn.execute(
-            "SELECT path, status, options_json FROM nodes WHERE company_id = ?", (company_id,))}
+            "SELECT path, status, options_json, prompt_text FROM nodes WHERE company_id = ?", (company_id,))}
 
     def label(path: str) -> str:
         parent = rows.get(path.rpartition(".")[0])
         for o in json.loads(parent["options_json"] or "[]") if parent else ():
             if o["key"] == path.rpartition(".")[2]:
-                return o["label"]
+                return fill_label(o["label"], o["key"], parent["prompt_text"])
         return ""
 
     def replay(path: str) -> bool:
@@ -300,7 +300,8 @@ def tree_json(conn: sqlite3.Connection, company_id: int) -> dict | None:
 
     def build(path: str, key: str, label: str) -> dict:
         r = rows[path]
-        options = json.loads(r["options_json"] or "[]")
+        options = [{"key": o["key"], "label": fill_label(o["label"], o["key"], r["prompt_text"])}
+                   for o in json.loads(r["options_json"] or "[]")]
         labels = {o["key"]: o["label"] for o in options}
         children = []
         for c in sorted(kids.get(path, []), key=lambda p: p.rpartition(".")[2]):
@@ -309,7 +310,7 @@ def tree_json(conn: sqlite3.Connection, company_id: int) -> dict | None:
         return {
             "path": path, "key": key, "label": label,
             "prompt_text": r["prompt_text"],
-            "options": [{"key": o["key"], "label": o["label"]} for o in options],
+            "options": options,
             "replays": replays_menu(label),
             "status": r["status"], "outcome": r["outcome"],
             "confirmations": r["confirmations"], "last_confirmed": r["last_confirmed"],

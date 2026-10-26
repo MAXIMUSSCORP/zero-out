@@ -237,7 +237,7 @@ def _label_for(node, parent):
     key = node["path"].rpartition(".")[2]
     for opt in parent["o"].get("options", []):
         if str(opt.get("key", "")) == key:
-            return _s(opt.get("label"))
+            return _fill(_s(opt.get("label")), key, _s(parent["o"].get("prompt_text")))
     return ""
 
 
@@ -281,9 +281,10 @@ def _node(node, parent, lines, depth=0):
     if _voice(o):
         out.append(f'<p class="voice">{VOICE}</p>')
     else:
-        replays = _replays()
-        opts = [f'<li>{_cap(k, "key sm")}<span class="t">{esc(_s(x.get("label")))}</span>'
-                f'{REPLAY_STATE if replays(_s(x.get("label"))) else ""}</li>'
+        replays, prompt = _replays(), _s(o.get("prompt_text"))
+        labels = {k: _fill(_s(x.get("label")), k, prompt) for k, x in ((str(x.get("key", "")), x) for x in o.get("options", []))}
+        opts = [f'<li>{_cap(k, "key sm")}<span class="t">{esc(labels[k])}</span>'
+                f'{REPLAY_STATE if replays(labels[k]) else ""}</li>'
                 for k, x in sorted(((str(x.get("key", "")), x) for x in o.get("options", [])),
                                    key=lambda kx: _key_rank(kx[0]))]
         if opts:
@@ -399,15 +400,27 @@ REPLAY_STATE = ' <span class="state">Replays a menu</span>'
 
 
 @functools.lru_cache(maxsize=1)
-def _replays():
-    """replays_menu from the sibling menu_text.py; with no sibling, nothing is marked."""
+def _menu_text():
+    """The sibling menu_text.py loaded by path, or None when it is missing."""
     path = Path(__file__).with_name("menu_text.py")
     if not path.is_file():
-        return lambda label: False
+        return None
     spec = importlib.util.spec_from_file_location("_menu_text_replays", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return mod.replays_menu
+    return mod
+
+
+def _replays():
+    """replays_menu from menu_text.py; with no sibling, nothing is marked."""
+    mod = _menu_text()
+    return mod.replays_menu if mod else (lambda label: False)
+
+
+def _fill(label, key, prompt_text):
+    """An empty or key only label made from the prompt sentence for that key; as it is without menu_text.py."""
+    mod = _menu_text()
+    return mod.fill_label(label, key, prompt_text) if mod else label
 
 
 def load_menu_lines():

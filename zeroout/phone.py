@@ -11,6 +11,7 @@ from typing import Callable
 
 from . import db, tree
 from .listen import hear_words
+from .menu_text import fill_label
 from .models import Observation, Option
 from .redact import redact as _redact
 
@@ -82,7 +83,7 @@ def _label(conn: sqlite3.Connection, company_id: int, path: str) -> str:
         return ""
     for o in json.loads(parent["options_json"] or "[]"):
         if o["key"] == path.rpartition(".")[2]:
-            return o["label"]
+            return fill_label(o["label"], o["key"], parent["prompt_text"])
     return ""
 
 

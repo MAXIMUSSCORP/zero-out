@@ -25,7 +25,8 @@
 </header>
 {% if budget_ok is defined and not budget_ok %}<div class="notice strong budget" role="status">Daily call budget reached. Calls start again tomorrow{% if local %}, or raise the cap in <a href="/settings">Settings</a>{% endif %}.</div>{% endif %}
 {% if toc is defined and toc | length >= 2 %}
-<nav class="toc{{ self.width() }}" aria-label="On this page"><ol>
+{% set shown = namespace(n=0) %}{% for t in toc %}{% if not (t | length > 2 and t[2]) %}{% set shown.n = shown.n + 1 %}{% endif %}{% endfor %}
+<nav class="toc{{ self.width() }}" aria-label="On this page"{% if shown.n < 2 %} hidden{% endif %}><ol>
 {% for t in toc %}  <li{% if t | length > 2 and t[2] %} hidden{% endif %}><a href="#{{ t[0] }}">{{ t[1] }}</a></li>
 {% endfor %}</ol></nav>
 {% endif %}

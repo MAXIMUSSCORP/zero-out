@@ -731,6 +731,8 @@ def test_stop_is_refused_when_a_key_is_set_in_the_environment(pg, key):
 
 def test_after_stop_connect_and_the_company_page_take_the_needs_twilio_path(pg):
     with_twilio(pg)
+    pg.conn.execute("INSERT INTO nodes (company_id, path, status) VALUES (?, '', 'mapped')", (pg.cid,))
+    pg.conn.commit()  # Connect me is only offered on a menu that has been heard
     assert "We call you at" in pg.c.get(f"/c/{pg.cid}").text
     post(pg, "/settings/phone/stop")
     assert "Connect me needs Twilio" in pg.c.get(f"/c/{pg.cid}").text

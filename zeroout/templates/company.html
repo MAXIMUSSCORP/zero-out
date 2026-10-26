@@ -8,19 +8,30 @@
 <section class="hero" id="s-map">
   <h1 class="display">{{ company.name }}</h1>
   <p class="lede tel">{{ company.number | tel }}</p>
-  <div class="actions">
-{% if local %}<div class="tip"><a class="btn primary" href="/c/{{ company.id }}/phone">Map with my phone</a>
-      <button type="button" class="info" popovertarget="info-map-phone" aria-label="About Map with my phone">?</button></div>
-    <div popover id="info-map-phone" class="pop">You call the company on your own phone, on speaker. This computer listens through its microphone, NVIDIA Parakeet recognizes the speech here{% if model_nano %}, and {{ model_nano | model_name }} on Nebius Token Factory reads the menu{% else %}, and the language model on Nebius Token Factory reads the menu{% endif %}. You review what was heard before anything is kept, and the audio is never saved.</div>
+  <div class="choices">
+{% if local %}
+    <div class="tile choice">
+      <div class="title"><h3>With your phone</h3>
+        <button type="button" class="info" popovertarget="info-map-phone" aria-label="About Map with my phone">?</button></div>
+      <p>You call on speaker and this computer listens. No Twilio charges.</p>
+      <div class="actions"><a class="btn primary" href="/c/{{ company.id }}/phone">Map with my phone</a></div>
+      <div popover id="info-map-phone" class="pop">You call the company on your own phone, on speaker. This computer listens through its microphone, NVIDIA Parakeet recognizes the speech here{% if model_nano %}, and {{ model_nano | model_name }} on Nebius Token Factory reads the menu{% else %}, and the language model on Nebius Token Factory reads the menu{% endif %}. You review what was heard before anything is kept, and the audio is never saved.</div>
+    </div>
 {% endif %}
-    <div class="tip"><form method="post" action="/c/{{ company.id }}/crawl" class="inline">
-      <button class="btn secondary"{% if running or not crawl_ready %} disabled{% endif %}>Map automatically</button>
-    </form>
-      <button type="button" class="info" popovertarget="info-map-auto" aria-label="About Map automatically">?</button></div>
-    <div popover id="info-map-auto" class="pop">Zero-Out places the calls through your Twilio account, presses each key and maps the whole menu. Twilio bills you per minute of calling, within your daily spending cap.</div>
+    <div class="tile choice">
+      <div class="title"><h3>Automatically</h3>
+        <button type="button" class="info" popovertarget="info-map-auto" aria-label="About Map automatically">?</button></div>
+      <p>Zero-Out places the calls through your Twilio account and maps the whole menu.</p>
 {% if not crawl_ready %}
-    <span class="hint">Needs Twilio.{% if local %} Add it in <a href="/settings">Settings</a>.{% endif %}</span>
+      <p class="hint">Needs Twilio.{% if local %} Add it in <a href="/settings">Settings</a>.{% endif %}</p>
 {% endif %}
+      <div class="actions">
+        <form method="post" action="/c/{{ company.id }}/crawl" class="inline">
+          <button class="btn secondary"{% if running or not crawl_ready %} disabled{% endif %}>Map automatically</button>
+        </form>
+      </div>
+      <div popover id="info-map-auto" class="pop">Zero-Out places the calls through your Twilio account, presses each key and maps the whole menu. Twilio bills you per minute of calling, within your daily spending cap.</div>
+    </div>
   </div>
 </section>
 
@@ -34,11 +45,12 @@
   <div class="section-head"><div class="title"><h2 id="ask-h">What do you need?</h2>
     <button type="button" class="info" popovertarget="info-ask" aria-label="About What do you need?">?</button></div>
     <div popover id="info-ask" class="pop">Describe what you need in your own words and Zero-Out picks the keys from this company's map. It only uses keys that are on the map.</div></div>
-  <form hx-post="/c/{{ company.id }}/ask" hx-target="#answer" hx-swap="innerHTML" class="ask">
-    <input name="question" placeholder="For example, dispute a charge" aria-label="What do you need?" maxlength="500" required>
-    <button>Ask</button>
+  <form hx-post="/c/{{ company.id }}/ask" hx-target="#answer" hx-swap="innerHTML" hx-indicator="#asking" hx-disabled-elt="#ask-q, #ask-go" class="ask">
+    <input id="ask-q" name="question" placeholder="For example, dispute a charge" aria-label="What do you need?" maxlength="500" required>
+    <button id="ask-go">Ask</button>
   </form>
   {% if model_super %}<p class="hint">Answers by {{ model_super | model_name }} on Nebius Token Factory.</p>{% endif %}
+  <p id="asking" class="htmx-indicator" role="status">Looking through {{ company.name }}'s map&hellip;</p>
   <div id="answer" aria-live="polite"></div>
 </section>
 
@@ -75,7 +87,8 @@
   <div class="section-head"><div class="title"><h2 id="connect-h">Connect me</h2>
     <button type="button" class="info" popovertarget="info-connect" aria-label="About Connect me">?</button></div>
     <div popover id="info-connect" class="pop">Zero-Out calls you, then calls the company, presses the keys and puts you through.</div></div>
-{% if owner %}<p>We call you at {{ owner }}, then dial the company and press the keys.</p>
+{% if not (tree and tree.status != 'unexplored') %}<p>Map this menu first. Connect me needs to know which keys to press.</p>
+{% elif owner %}<p>We call you at {{ owner }}, then dial the company and press the keys.</p>
 {% elif needs_twilio %}<p>Connect me needs Twilio. {% if local %}Add it in <a href="/settings">Settings</a>.{% else %}Run zeroout setup to add it.{% endif %}</p>
 {% elif verified %}<p>Phone verified. Use a Connect me button in the menu above.</p>
 {% else %}

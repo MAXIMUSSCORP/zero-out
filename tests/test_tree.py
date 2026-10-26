@@ -624,3 +624,29 @@ def test_tree_json_marks_replay_options():
     kids = {c["key"]: c for c in tree.tree_json(conn, cid)["children"]}
     assert kids["*"]["replays"] is True and kids["1"]["replays"] is False
     assert tree.tree_json(conn, cid)["replays"] is False
+
+
+COSTCO_MENU = ("Thank you for calling Costco. For billing questions, press 1. For Costco Travel, press 5. "
+               "To repeat this information, press star.")
+
+
+def costco_root(conn, cid, rid, labels):
+    obs = Observation(COSTCO_MENU, [Option(k, v) for k, v in labels.items()], "menu", 3.0)
+    m(conn, cid, rid, "", obs)
+
+
+def test_tree_json_fills_bare_labels_from_the_parent_prompt():
+    conn, cid, rid = setup()
+    costco_root(conn, cid, rid, {"1": "one", "5": "", "7": "press 7", "*": "star"})
+    t = tree.tree_json(conn, cid)
+    assert {c["key"]: c["label"] for c in t["children"]} == {
+        "1": "billing questions", "5": "Costco Travel", "7": "Option 7", "*": "repeat this information"}
+    assert {o["key"]: o["label"] for o in t["options"]} == {c["key"]: c["label"] for c in t["children"]}
+    assert db.get_node(conn, cid, "")["options_json"].count('"label": ""') == 1  # the stored data is untouched
+
+
+def test_a_star_labelled_only_star_is_recognized_as_a_replay_from_its_prompt_sentence():
+    conn, cid, rid = setup()
+    costco_root(conn, cid, rid, {"1": "one", "*": "star"})
+    assert tree.unexplored(conn, cid, 4) == ["1"]
+    assert {c["key"]: c["replays"] for c in tree.tree_json(conn, cid)["children"]} == {"1": False, "*": True}

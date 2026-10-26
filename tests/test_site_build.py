@@ -505,3 +505,21 @@ def test_a_replay_option_keeps_its_row_and_says_it_replays_a_menu(dirs):
     assert ('<li><span class="key sm">*</span><span class="t">To repeat this information</span>'
             ' <span class="state">Replays a menu</span></li>') in html
     assert '<li><span class="key sm">1</span><span class="t">Billing</span></li>' in html
+
+
+def test_bare_labels_in_community_files_are_filled_from_the_prompt(dirs):
+    trees, out = dirs
+    menu = ("Thank you for calling Costco. For billing questions, press 1. For Costco Travel, press 5. "
+            "To repeat this information, press star.")
+    put(trees, "8885550199", "a", "2026-10-01", [
+        obs(text=menu, keys=("1", "5", "7", "*"), labels={"1": "one", "5": "", "7": "press 7", "*": "star"}),
+        obs("5", text="Travel desk. Press 1 for cruises.", keys=("1",), labels={"1": "1"}),
+    ])
+    site_build.build(trees, out, today=TODAY)
+    html = page(out, "8885550199")
+    for k, label in (("1", "billing questions"), ("5", "Costco Travel"), ("7", "Option 7")):
+        assert f'<li><span class="key sm">{k}</span><span class="t">{label}</span></li>' in html
+    assert ('<li><span class="key sm">*</span><span class="t">repeat this information</span>'
+            ' <span class="state">Replays a menu</span></li>') in html
+    assert '<span class="t">cruises</span>' in html
+    assert '</span> Costco Travel <span class="state">' in html  # the node's own heading, from its parent's prompt
