@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from zeroout.redact import redact
-from zeroout.menu_text import menu_lines
+from zeroout.menu_text import menu_lines, spoken_examples
 
 
 def texts(r):
@@ -328,3 +328,62 @@ def test_a_derived_label_never_turns_a_real_option_into_a_replay():
     assert not replays_menu(fill_label("", "1", "Press 1 for billing and press 2 to repeat this menu."))
     assert not replays_menu(fill_label("", "1", "For billing press 1 to go back press 2."))
     assert replays_menu(fill_label("", "2", "For billing press 1 to go back press 2."))
+
+
+UNITED = "You can say things like, I need help changing my reservation, or, I'd like to book a flight."
+
+
+def test_united_examples():
+    assert spoken_examples(UNITED) == ["I need help changing my reservation", "I'd like to book a flight"]
+
+
+@pytest.mark.parametrize("text,want", [
+    ("Say something like check my balance or pay my bill.", ["Check my balance", "Pay my bill"]),
+    ("For example, say track my package.", ["Track my package"]),
+    ("For example, 'where is my order'.", ["Where is my order"]),
+    ("Try saying \"change my flight\"; or \"cancel a trip\".", ["Change my flight", "Cancel a trip"]),
+    ("You can say check status, or say talk to an agent.", ["Check status", "Talk to an agent"]),
+    ("Welcome to Acme. You can say things like pay my bill. Anything else is fine.", ["Pay my bill"]),
+    ("Puede decir cosas como, quiero pagar mi factura, o, necesito ayuda con mi cuenta.",
+     ["Quiero pagar mi factura", "Necesito ayuda con mi cuenta"]),
+    ("Por ejemplo, diga estado de mi pedido.", ["Estado de mi pedido"]),
+    ("You can say \u201cbook a flight\u201d.", ["Book a flight"]),
+])
+def test_example_phrasings(text, want):
+    assert spoken_examples(text) == want
+
+
+@pytest.mark.parametrize("text", [
+    "", "   ", "For billing press 1, for support press 2.", "Thanks for calling. Para espanol, oprima dos.",
+    "You can say things like.", "You can say billing.", "You can say call 5551234567 now.",
+    "You can say things like [number] or [email].", "Say yes", "Welcome, you can press 1 for sales.",
+])
+def test_no_examples(text):
+    assert spoken_examples(text) == []
+
+
+def test_examples_drop_digits_and_redaction_marks_but_keep_the_rest():
+    assert spoken_examples("You can say call [number] now, or pay my bill, or book flight 2 please.") == ["Pay my bill"]
+
+
+def test_examples_are_capped_trimmed_and_unique():
+    many = "You can say " + "; ".join(f"do thing {c}ne" for c in "abcdefgh")
+    assert len(spoken_examples(many)) == 5
+    long = spoken_examples("You can say " + "word " * 60)
+    assert len(long) == 1 and len(long[0]) <= 80
+    assert spoken_examples("You can say pay my bill; pay my bill") == ["Pay my bill"]
+
+
+@pytest.mark.parametrize("s", ODD + [None, 5, b"x", "You can say " * 3000, "or say " * 5000, "for example, " * 4000,
+                                        "You can say \u017fay x", "\u212a"])
+def test_examples_never_raise(s):
+    r = spoken_examples(s)
+    assert isinstance(r, list) and len(r) <= 5 and all(isinstance(x, str) and len(x) <= 80 for x in r)
+
+
+def test_examples_time_bounded():
+    import time
+    t = time.perf_counter()
+    spoken_examples("You can say " + ", or " * 20000)
+    spoken_examples("you can say " + "a " * 50000)
+    assert time.perf_counter() - t < 0.5

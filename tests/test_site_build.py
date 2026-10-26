@@ -523,3 +523,45 @@ def test_bare_labels_in_community_files_are_filled_from_the_prompt(dirs):
             ' <span class="state">Replays a menu</span></li>') in html
     assert '<span class="t">cruises</span>' in html
     assert '</span> Costco Travel <span class="state">' in html  # the node's own heading, from its parent's prompt
+
+
+UNITED = "You can say things like, I need help changing my reservation, or, I'd like to book a flight."
+
+
+def test_voice_menu_lists_spoken_examples_and_a_general_tip(dirs):
+    trees, out = dirs
+    o = obs(text=UNITED, keys=(), outcome="speech_menu")
+    put(trees, "8885550199", "a", "2026-10-01", [o])
+    site_build.build(trees, out, today=TODAY)
+    html = page(out, "8885550199")
+    assert "Voice menu: you say what you need; there are no keys to press." in html
+    assert ('<p class="lbl">This line suggests saying:</p><ul class="eg">'
+            "<li>I need help changing my reservation</li><li>I&#x27;d like to book a flight</li></ul>") in html
+    assert html.index("Voice menu:") < html.index("This line suggests saying:") < html.index("General tip")
+    assert "try saying &quot;representative&quot; or &quot;agent&quot;." in html
+
+
+def test_voice_menu_without_examples_still_gets_the_tip_and_no_empty_list(dirs):
+    trees, out = dirs
+    put(trees, "8885550199", "a", "2026-10-01", [obs(text="Tell me what you need.", keys=(), outcome="speech_menu")])
+    site_build.build(trees, out, today=TODAY)
+    html = page(out, "8885550199")
+    assert "General tip" in html and "This line suggests saying" not in html and "<ul class=\"eg\">" not in html
+
+
+def test_keypad_menu_has_no_examples_or_tip(dirs):
+    trees, out = dirs
+    put(trees, "8885550199", "a", "2026-10-01", [obs(text="You can say things like pay my bill. Press 1.")])
+    site_build.build(trees, out, today=TODAY)
+    html = page(out, "8885550199")
+    assert "General tip" not in html and "suggests saying" not in html
+
+
+def test_spoken_examples_are_escaped(dirs):
+    trees, out = dirs
+    evil = "<img src=x onerror=alert(1)> now"
+    put(trees, "8885550199", "a", "2026-10-01",
+        [obs(text=f"You can say things like {evil}; or <b>bold move</b> please.", keys=(), outcome="speech_menu")])
+    site_build.build(trees, out, today=TODAY)
+    html = page(out, "8885550199")
+    assert "<img" not in html and "<b>" not in html and "&lt;img src=x" in html

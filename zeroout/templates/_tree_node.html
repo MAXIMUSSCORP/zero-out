@@ -1,4 +1,5 @@
 {% from "_quote.html" import quote %}
+{% from "_say.html" import examples, person_tip %}
 {% set unheard = node.status == 'unexplored' %}
 {% set changed = node.status in ('stale', 'changed') %}
 <details{% if not node.path %} open{% endif %}>
@@ -13,6 +14,10 @@
   </summary>
   <div class="body">
     {{ quote(node) }}
+    {% if node.status == 'speech_menu' %}
+    {{ examples(node.prompt_text) }}
+    <p class="low small">{{ person_tip() }}</p>
+    {% endif %}
     {% if not unheard %}
     <form class="inline" method="post" action="/c/{{ company.id }}/connect">
       <input type="hidden" name="path" value="{{ node.path }}">

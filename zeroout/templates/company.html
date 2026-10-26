@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% set active = 'companies' %}
-{% set toc = [('s-map', 'Map'), ('s-ask', 'Ask'), ('s-menu', 'Menu'), ('s-connect', 'Connect')] + ([('s-share', 'Share')] if local else []) + [('s-changes', 'Changes')] %}
+{% set voice_root = tree and tree.status == 'speech_menu' %}
+{% set toc = [('s-map', 'Map'), ('s-say', 'Say') if voice_root else ('s-ask', 'Ask'), ('s-menu', 'Menu'), ('s-connect', 'Connect')] + ([('s-share', 'Share')] if local else []) + [('s-changes', 'Changes')] %}
 {% block title %}{{ company.name }} - Zero Out{% endblock %}
 {% from "_quote.html" import quote %}
+{% from "_say.html" import examples, tips %}
 {% block body %}
 <a class="back" href="/">&larr; Companies</a>
 <section class="hero" id="s-map">
@@ -41,6 +43,13 @@
 <div class="notice" role="status">Some options lead to a voice assistant that listens for speech instead of keys.</div>
 {% endif %}
 
+{% if voice_root %}
+<section id="s-say" aria-labelledby="say-h">
+  <div class="section-head"><h2 id="say-h">What to say</h2></div>
+  {{ examples(tree.prompt_text) }}
+  {{ tips(tree.prompt_text) }}
+</section>
+{% else %}
 <section id="s-ask" aria-labelledby="ask-h">
   <div class="section-head"><div class="title"><h2 id="ask-h">What do you need?</h2>
     <button type="button" class="info" popovertarget="info-ask" aria-label="About What do you need?">?</button></div>
@@ -53,6 +62,7 @@
   <p id="asking" class="htmx-indicator" role="status">Looking through {{ company.name }}'s map&hellip;</p>
   <div id="answer" aria-live="polite"></div>
 </section>
+{% endif %}
 
 <section id="s-menu" aria-labelledby="menu-h">
   <div class="section-head"><div class="title"><h2 id="menu-h">The menu</h2>
@@ -63,7 +73,7 @@
   <div class="tile root">
     <h3>Main menu</h3>
     {{ quote(tree) }}
-    {% if tree.status != 'unexplored' %}
+    {% if tree.status not in ('unexplored', 'speech_menu') %}
     <form class="inline" method="post" action="/c/{{ company.id }}/connect">
       <input type="hidden" name="path" value="{{ tree.path }}">
       <button class="btn small secondary">Connect me</button>
@@ -87,7 +97,8 @@
   <div class="section-head"><div class="title"><h2 id="connect-h">Connect me</h2>
     <button type="button" class="info" popovertarget="info-connect" aria-label="About Connect me">?</button></div>
     <div popover id="info-connect" class="pop">Zero-Out calls you, then calls the company, presses the keys and puts you through.</div></div>
-{% if not (tree and tree.status != 'unexplored') %}<p>Map this menu first. Connect me needs to know which keys to press.</p>
+{% if voice_root %}<p>Connect me presses keys, and this line has none. Call it directly and use the tips under What to say.</p>
+{% elif not (tree and tree.status != 'unexplored') %}<p>Map this menu first. Connect me needs to know which keys to press.</p>
 {% elif owner %}<p>We call you at {{ owner }}, then dial the company and press the keys.</p>
 {% elif needs_twilio %}<p>Connect me needs Twilio. {% if local %}Add it in <a href="/settings">Settings</a>.{% else %}Run zeroout setup to add it.{% endif %}</p>
 {% elif verified %}<p>Phone verified. Use a Connect me button in the menu above.</p>

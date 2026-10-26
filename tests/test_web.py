@@ -1386,3 +1386,106 @@ def test_needs_twilio_hint_sits_above_the_disabled_button(env):
     c = TestClient(web.create_app(st, env.conn, listen=env.menu.listen, same=YES))
     t = c.get(f"/c/{env.cid}").text
     assert t.index("Needs Twilio.") < t.index("disabled>Map automatically")
+
+
+EXAMPLES = ["I need help changing my reservation", "I'd like to book a flight"]
+
+
+def voice_root(env, monkeypatch, prompt="Say something like I need help changing my reservation, or I'd like to book a flight."):
+    monkeypatch.setattr(web, "spoken_examples", lambda text: EXAMPLES if text else [])
+    mapped(env)
+    env.conn.execute("DELETE FROM nodes WHERE path != ''")  # a voice line has no keys, so no options below it
+    env.conn.execute("UPDATE nodes SET status = 'speech_menu', prompt_text = ? WHERE path = ''", (prompt,))
+    env.conn.commit()
+    return env.build()
+
+
+def test_voice_root_has_no_connect_me_and_says_why(env, monkeypatch):
+    c = TestClient(voice_root(env, monkeypatch))
+    t = c.get(f"/c/{env.cid}").text
+    assert "Connect me presses keys, and this line has none. Call it directly and use the tips under What to say." in t
+    assert f'action="/c/{env.cid}/connect"' not in t and "/verify/start" not in t
+
+
+def test_voice_root_shows_examples_and_tips_in_place_of_ask(env, monkeypatch):
+    t = TestClient(voice_root(env, monkeypatch)).get(f"/c/{env.cid}").text
+    assert 'id="s-say"' in t and "What to say" in t and 'id="s-ask"' not in t
+    assert "This line suggests saying:" in t
+    assert "&ldquo;I need help changing my reservation&rdquo;" in t
+    assert "Tips that work on most voice assistants" in t
+    assert "say &ldquo;representative&rdquo; or &ldquo;agent&rdquo;" in t
+    assert f'hx-post="/c/{env.cid}/ask"' not in t
+
+
+def test_voice_root_toc_says_say_instead_of_ask(env, monkeypatch):
+    t = TestClient(voice_root(env, monkeypatch)).get(f"/c/{env.cid}").text
+    assert_toc_points_at_real_sections(t, ["Map", "Say", "Menu", "Connect", "Changes"])
+
+
+def test_voice_examples_are_escaped(env, monkeypatch):
+    monkeypatch.setattr(web, "spoken_examples", lambda text: ["<b>book</b> a flight"])
+    mapped(env)
+    env.conn.execute("UPDATE nodes SET status = 'speech_menu', prompt_text = 'x' WHERE path = ''")
+    env.conn.commit()
+    t = TestClient(env.build()).get(f"/c/{env.cid}").text
+    assert "&lt;b&gt;book&lt;/b&gt; a flight" in t and "<b>book</b>" not in t
+
+
+def test_voice_root_ask_returns_the_tips_without_calling_the_model(env, monkeypatch):
+    seen = []
+    monkeypatch.setattr(web, "spoken_examples", lambda text: EXAMPLES)
+    mapped(env)
+    env.conn.execute("UPDATE nodes SET status = 'speech_menu', prompt_text = 'say it' WHERE path = ''")
+    env.conn.commit()
+    app = web.create_app(env.st, env.conn, probe=env.menu.probe, listen=env.menu.listen, same=YES,
+                         chat=lambda s, m, msgs: seen.append(msgs) or env.answer)
+    t = TestClient(app).post(f"/c/{env.cid}/ask", data={"question": "refund?"}).text
+    assert seen == [] and "Tips that work on most voice assistants" in t
+    assert "I need help changing my reservation" in t
+
+
+def test_deeper_voice_option_keeps_connect_me_and_shows_its_tips(env, monkeypatch):
+    monkeypatch.setattr(web, "spoken_examples", lambda text: EXAMPLES if text == "say a thing" else [])
+    mapped(env)
+    env.conn.execute("UPDATE nodes SET status = 'speech_menu', prompt_text = 'say a thing' WHERE path = '2'")
+    env.conn.commit()
+    t = TestClient(env.build()).get(f"/c/{env.cid}").text
+    assert "Connect me presses keys" not in t
+    body = t[t.index('<span class="state warn">Voice menu</span>'):]
+    assert "This line suggests saying:" in body and "say" in body and "representative" in body
+    assert body.count(f'action="/c/{env.cid}/connect"') >= 1
+    assert 'id="s-ask"' in t  # the root is a keypad menu, so Ask stays
+
+
+def test_keypad_company_is_unchanged_by_voice_support(env):
+    mapped(env)
+    t = env.client.get(f"/c/{env.cid}").text
+    assert 'id="s-ask"' in t and "What to say" not in t and "Tips that work" not in t
+    assert f'action="/c/{env.cid}/connect"' in t
+
+
+def test_connect_to_a_voice_root_is_refused_before_any_call(env, monkeypatch):
+    app = voice_root(env, monkeypatch)
+    c = TestClient(app)
+    c.post("/verify/start", data={"phone": "4155550100"})
+    c.post("/verify/check", data={"code": "123456"})
+    r = c.post(f"/c/{env.cid}/connect", data={"path": ""})
+    assert r.status_code == 400 and web.NO_KEYS_MSG in r.text
+    assert web.NO_KEYS_MSG == ("Connect me presses keys, and this line has none. "
+                               "Call it directly and use the tips under What to say.")
+    assert not env.connect.calls and app.state.running == set()
+
+
+def test_connect_to_a_keypad_root_is_still_allowed(env):
+    mapped(env)
+    verified(env)
+    assert env.client.post(f"/c/{env.cid}/connect", data={"path": ""}).status_code == 200
+
+
+def test_voice_tip_points_at_examples_only_when_there_are_some(env, monkeypatch):
+    t = TestClient(voice_root(env, monkeypatch)).get(f"/c/{env.cid}").text
+    assert "Use a few words, like the examples above." in t and "that say what you need" not in t
+    monkeypatch.setattr(web, "spoken_examples", lambda text: [])
+    t = TestClient(env.build()).get(f"/c/{env.cid}").text
+    assert "Use a few words that say what you need." in t and "like the examples above" not in t
+    assert "This line suggests saying:" not in t

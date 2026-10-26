@@ -96,6 +96,9 @@ details[open]>summary::before{content:"\\25BE"}
 .lines{list-style:none;margin:0;padding:0}
 .lines li{padding:1px 0;overflow-wrap:anywhere;max-width:620px}
 .voice{margin:0 0 10px;padding:12px 16px;border-radius:14px;background:var(--tile);font-size:14px}
+.eg{margin:0 0 10px;padding:0 0 0 18px;color:var(--text-low);font-size:14px}
+.tip{margin:0 0 10px;font-size:14px;color:var(--text-low)}
+.tip .lbl{display:inline;margin-right:6px}
 .voice-tag{flex-basis:100%}
 .opts{margin:0 0 8px;padding:0;list-style:none}
 .opts li{display:flex;align-items:center;gap:12px;padding:3px 0}
@@ -242,6 +245,7 @@ def _label_for(node, parent):
 
 
 VOICE = "Voice menu: you say what you need; there are no keys to press."
+TIP = 'To reach a person, try saying "representative" or "agent".'
 KEY_ORDER = "1234567890*#"
 
 
@@ -280,6 +284,11 @@ def _node(node, parent, lines, depth=0):
         out.append('<div class="said"><p class="lbl">What the menu says</p><ol class="lines">' + "".join(rows) + "</ol></div>")
     if _voice(o):
         out.append(f'<p class="voice">{VOICE}</p>')
+        eg = _examples(_s(o.get("prompt_text")))
+        if eg:
+            out.append('<p class="lbl">This line suggests saying:</p><ul class="eg">'
+                       + "".join(f"<li>{esc(x)}</li>" for x in eg) + "</ul>")
+        out.append(f'<p class="tip"><span class="lbl">General tip</span> {esc(TIP)}</p>')
     else:
         replays, prompt = _replays(), _s(o.get("prompt_text"))
         labels = {k: _fill(_s(x.get("label")), k, prompt) for k, x in ((str(x.get("key", "")), x) for x in o.get("options", []))}
@@ -415,6 +424,12 @@ def _replays():
     """replays_menu from menu_text.py; with no sibling, nothing is marked."""
     mod = _menu_text()
     return mod.replays_menu if mod else (lambda label: False)
+
+
+def _examples(prompt_text):
+    """spoken_examples from menu_text.py; with no sibling, none."""
+    mod = _menu_text()
+    return mod.spoken_examples(prompt_text) if mod else []
 
 
 def _fill(label, key, prompt_text):

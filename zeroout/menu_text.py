@@ -161,3 +161,37 @@ def fill_label(label, key, prompt_text) -> str:
         return derived or f"Option {key}"
     except Exception:
         return label if isinstance(label, str) else ""
+
+
+_TRIGGER = re.compile(
+    r"\b(?:you\s+can\s+say(?:\s+things\s+like)?|say\s+something\s+like|for\s+example,?(?:\s+say)?"
+    r"|try\s+saying|or\s+say|puede\s+decir(?:\s+cosas\s+como)?|por\s+ejemplo,?|diga)\b[:,]?",
+    re.IGNORECASE | re.ASCII)
+_EG_SPLIT = re.compile(r"\s*;\s*(?:or\s+)?|\s*,\s*or\s*,?\s*|\s+or\s+|\s*,\s*o\s*,\s*|\s+o\s+", re.IGNORECASE | re.ASCII)
+_QUOTES = "\"'“”‘’«»`"
+_NOT_EXAMPLE = re.compile(r"\d|\[")
+MAX_EXAMPLES = 5
+MAX_EXAMPLE_CHARS = 80
+
+
+def spoken_examples(text: str) -> list[str]:
+    """The phrases a voice menu suggests saying ("You can say things like, I need help, or, book a flight."),
+    at most five, each at most 80 characters. Never raises."""
+    try:
+        if not isinstance(text, str):
+            return []
+        out = []
+        for sentence in _sentences(" ".join(text[:4000].split())):
+            found = list(_TRIGGER.finditer(sentence))
+            for i, m in enumerate(found):
+                end = found[i + 1].start() if i + 1 < len(found) else len(sentence)
+                for part in _EG_SPLIT.split(sentence[m.end():end]):
+                    p = part.strip(" \t" + _QUOTES).rstrip(" .,;:!?" + _QUOTES).lstrip(_QUOTES + " ")
+                    if len(p.split()) < 2 or _NOT_EXAMPLE.search(p):
+                        continue
+                    p = (p[0].upper() + p[1:])[:MAX_EXAMPLE_CHARS].rstrip()
+                    if p.lower() not in {x.lower() for x in out}:
+                        out.append(p)
+        return out[:MAX_EXAMPLES]
+    except Exception:
+        return []

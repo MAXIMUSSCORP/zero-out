@@ -29,7 +29,7 @@ from .ask import MAX_QUESTION, ask as ask_question
 from .budget import calls_today, can_spend
 from .config import Settings, load_settings
 from .crawl import crawl
-from .menu_text import fill_label, menu_lines
+from .menu_text import fill_label, menu_lines, spoken_examples
 from .paths import is_toll_free, normalize_number
 from .settings_page import CHECKS_PER_HOUR, READS_PER_HOUR, SettingsPage
 from .tree import tree_json
@@ -75,6 +75,7 @@ UPDATE_FAILED_MSG = "Something went wrong updating from the community. Try again
 NEEDS_TWILIO_LOCAL_MSG = "Needs Twilio. Add it in Settings."
 NEEDS_TWILIO_MSG = "Needs Twilio."
 VERIFY_PENDING_SECONDS = 600
+NO_KEYS_MSG = "Connect me presses keys, and this line has none. Call it directly and use the tips under What to say."
 SEND_CODE_FIRST_MSG = "Send a code first."
 PHONE_TOO_BIG_MSG = "That recording is too long. Stop sooner and try again."
 CSP = (
@@ -254,6 +255,7 @@ def create_app(
 
     templates = Jinja2Templates(directory=str(TEMPLATES))
     templates.env.filters["menu_lines"] = menu_lines
+    templates.env.filters["spoken_examples"] = spoken_examples
     templates.env.filters["when"] = when
     templates.env.filters["tel"] = tel
     templates.env.filters["by_key"] = by_key
@@ -795,6 +797,10 @@ def create_app(
         same_origin(request)
         company(cid)
         limited(ask_limit, request)
+        root = db.get_node(conn, cid, "")
+        if root is not None and root["status"] == "speech_menu":
+            # A voice line has no keys to pick, so the model has nothing to choose from: show the tips instead.
+            return render(request, "_say_answer.html", text=root["prompt_text"] or "")
         ans = ask_question(conn, settings, cid, question[:MAX_QUESTION], chat=get_chat())
         return render(request, "_answer.html", answer=ans)
 
@@ -916,6 +922,9 @@ def create_app(
         company(cid)
         if path and not PATH_RE.fullmatch(path):
             raise HTTPException(400, "Invalid menu path")
+        root = db.get_node(conn, cid, "")
+        if not path and root is not None and root["status"] == "speech_menu":
+            raise HTTPException(400, NO_KEYS_MSG)
         limited(connect_limit, request)
         with lock:
             if cid in app.state.running:

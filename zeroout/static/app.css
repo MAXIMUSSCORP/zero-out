@@ -229,6 +229,8 @@ a.tile:hover{background:var(--el)}
 .quote li{color:var(--text-low)}
 .quote .small{color:var(--text-low)}
 .quote + form{margin-top:20px}
+.quote + h3,.list + h3{margin-top:20px}
+h3 + .list{margin-top:12px}
 .menu .body .quote + form{margin-top:6px}
 
 /* ---------- info buttons and their popovers: a floating layer, the one place with a shadow ---------- */
