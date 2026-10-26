@@ -143,12 +143,8 @@ def test_inline_style_is_covered_by_the_csp_hash_whatever_the_css_holds():
 
 def test_look_tokens_are_datums_light_and_dark():
     css = site_build.CSS
-    datum = (Path("/home/zaidv/datum/src/styles.css"))
     for tok in ("--g1:#FCFCFC", "--g12:#1B1B1B", "--g1:#0A0A0A", "--g12:#EFEFEF", "--inv-bg:#000", "--inv-bg:#FFF"):
         assert tok in css
-    if datum.is_file():
-        want = re.findall(r"--g\d+:#[0-9A-F]{6}", datum.read_text(encoding="utf-8")[:1800])
-        assert want and all(w in css for w in want)
     assert "prefers-color-scheme:dark" in css and 'data-theme="dark"' in css
     assert "Inter," in css and "980px" in css and "999px" not in css
     assert "monospace" not in css

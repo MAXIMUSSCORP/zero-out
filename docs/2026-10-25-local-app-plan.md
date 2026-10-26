@@ -129,7 +129,7 @@ synthetic 19.7 s menu resampled to 8 kHz and round-tripped through mu-law:
   clips never overwrite or delete crawl data and never change crawl timing.
 
 - Phases 4 to 6, 2026-10-25, commit db3d8c3 (1055 tests) and the local trees
-  repo scaffold at /home/zaidv/zero-out-trees (not yet on GitHub). Verified
+  repo scaffold, since published as MAXIMUSSCORP/zero-out-trees. Verified
   locally: exported files pass the trees repo's own stdlib checker and build
   the site; a fresh install sees an unknown number only as an offer, and after
   the user adds it the next update imports the tree as `source=community`.
@@ -140,12 +140,14 @@ synthetic 19.7 s menu resampled to 8 kHz and round-tripped through mu-law:
   `pull_request_target` with the base branch's checker and accepts exactly one
   added file under trees/.
 
-## Before the trees repo goes public
+## Trees repo published, 2026-10-26
 
-- Create MAXIMUSSCORP/zero-out-trees and push the scaffold; turn on the
-  settings listed in its CONTRIBUTING.md (branch protection requiring the
-  validate check and a code-owner review, Pages from Actions).
-- Replace the LICENSE notice with the official CC0-1.0 text.
+- MAXIMUSSCORP/zero-out-trees is public. Pages builds from Actions at
+  https://maximusscorp.github.io/zero-out-trees/. `main` is protected: the
+  validate check must pass, one code-owner review is required, force pushes
+  and deletion are blocked; admins are not held to it, since a sole
+  maintainer cannot approve their own pull request.
+- LICENSE is the official CC0 1.0 legal code.
 
 ## Carried into phase 4
 
