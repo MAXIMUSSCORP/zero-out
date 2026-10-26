@@ -51,6 +51,37 @@ def _add_children(conn: sqlite3.Connection, cid: int, path: str, obs: Observatio
         )
 
 
+def _option_json(o) -> dict:
+    """An option as stored: key and label, plus the model's replays flag only when it gave one."""
+    d = {"key": o.key, "label": o.label}
+    if o.replays is not None:
+        d["replays"] = o.replays
+    return d
+
+
+def _trusted_flags(options: list[dict]) -> dict:
+    """The model's replays flags by key, or none of them when they mark every option, or more than half of a
+    menu of two or more, as navigation: that is a model gone wrong, and the word rules decide instead."""
+    flags = {o["key"]: o.get("replays") for o in options}
+    marked = sum(1 for f in flags.values() if f is True)
+    if marked and (marked == len(options) or (len(options) >= 2 and marked * 2 > len(options))):
+        return {k: None for k in flags}
+    return flags
+
+
+def _refresh_flags(options_json: str | None, new: list) -> str:
+    """The stored options with their replays flags taken from the newest observation: a flag it gives wins, one
+    it leaves unknown keeps what was stored."""
+    fresh = {o.key: o.replays for o in new if o.replays is not None}
+    out = []
+    for o in json.loads(options_json or "[]"):
+        o = dict(o)
+        if o["key"] in fresh:
+            o["replays"] = fresh[o["key"]]
+        out.append(o)
+    return json.dumps(out)
+
+
 def _keys(options_json: str | None) -> set[str]:
     return {o["key"] for o in json.loads(options_json or "[]")}
 
@@ -180,9 +211,9 @@ def _merge_locked(
     obs_id = conn.execute(
         "INSERT INTO observations (company_id, path, run_id, raw_json, audio_url, created_at, origin, uid) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (company_id, path, run_id, json.dumps(asdict(obs)), audio_path, heard_at or ts, origin, uid),
+        (company_id, path, run_id, json.dumps({**asdict(obs), "options": [_option_json(o) for o in obs.options]}), audio_path, heard_at or ts, origin, uid),
     ).lastrowid
-    options_json = json.dumps([asdict(o) for o in obs.options])
+    options_json = json.dumps([_option_json(o) for o in obs.options])
     status = _implied_status(obs.outcome)
     result: str
     # A phone clip or a community file never overwrites what an automatic call heard here: it can only
@@ -232,8 +263,8 @@ def _merge_locked(
     ):
         conn.execute(
             "UPDATE nodes SET confirmations = confirmations + 1, last_confirmed = ?, "
-            "status = ?, source = ? WHERE company_id = ? AND path = ?",
-            (ts, status, source, company_id, path),
+            "status = ?, source = ?, options_json = ? WHERE company_id = ? AND path = ?",
+            (ts, status, source, _refresh_flags(node["options_json"], obs.options), company_id, path),
         )
         result = "confirmed"
     elif source in GUEST_SOURCES and _owned_below(conn, company_id, path, obs, node, source):
@@ -270,9 +301,11 @@ def unexplored(conn: sqlite3.Connection, company_id: int, max_depth: int) -> lis
     def replays(path: str) -> bool:
         """The label the transcript gives that key decides; the stored one only when nothing can be derived."""
         parent = rows.get(path.rpartition(".")[0])
-        for o in json.loads(parent["options_json"] or "[]") if parent else ():
+        stored = json.loads(parent["options_json"] or "[]") if parent else []
+        flags = _trusted_flags(stored)
+        for o in stored:
             if o["key"] == path.rpartition(".")[2]:
-                return option_replays(o["label"], o["key"], parent["prompt_text"])
+                return option_replays(o["label"], o["key"], parent["prompt_text"], flags[o["key"]])
         return False
 
     def replay(path: str) -> bool:
@@ -302,8 +335,9 @@ def tree_json(conn: sqlite3.Connection, company_id: int) -> dict | None:
     def build(path: str, key: str, label: str, said_replay: bool = False) -> dict:
         r = rows[path]
         stored = json.loads(r["options_json"] or "[]")
+        flags = _trusted_flags(stored)
         options = [{"key": o["key"], "label": fill_label(o["label"], o["key"], r["prompt_text"]),
-                    "replays": option_replays(o["label"], o["key"], r["prompt_text"])} for o in stored]
+                    "replays": option_replays(o["label"], o["key"], r["prompt_text"], flags[o["key"]])} for o in stored]
         labels = {o["key"]: o["label"] for o in options}
         replay_keys = {o["key"] for o in options if o["replays"]}
         children = []

@@ -773,3 +773,43 @@ def test_a_prompt_with_unicode_space_numbers_is_redacted_on_export():
     conn, cid = setup()
     crawl(conn, cid, "", Observation("Call 415 555 1234 today", [Option("1", "x")], "menu", 2.0))
     assert build(conn, cid).doc["observations"][0]["prompt_text"] == "Call [number] today"
+
+
+# ---------- the replays flag stays on this machine (format 1 is unchanged) ----------
+
+def _flagged_and_plain():
+    """Two identical databases; in one, the stored options also carry B's replays flag."""
+    built = []
+    for flagged in (False, True):
+        conn, cid = setup()
+        crawl(conn, cid, "", menu(("1", "2")), created="2026-10-20 10:00:00")
+        if flagged:
+            raw = json.loads(conn.execute("SELECT raw_json FROM observations").fetchone()["raw_json"])
+            raw["options"] = [{**o, "replays": o["key"] == "2"} for o in raw["options"]]
+            conn.execute("UPDATE observations SET raw_json = ?", (json.dumps(raw),))
+            conn.commit()
+        built.append(build(conn, cid))
+    return built
+
+
+def test_replays_flag_is_not_exported_and_the_file_is_byte_identical():
+    plain, flagged = _flagged_and_plain()
+    assert plain is not None and flagged is not None
+    assert flagged.body == plain.body
+    assert b"replays" not in flagged.body
+    assert all(set(o) == {"key", "label"} for ob in flagged.doc["observations"] for o in ob["options"])
+
+
+def test_replays_flag_does_not_reach_the_outbox(tmp_path):
+    from zeroout import github
+    _, flagged = _flagged_and_plain()
+    sent = github._outbox(flagged, "o/r", tmp_path, "no gh")
+    assert sent.outbox is not None and b"replays" not in sent.outbox.read_bytes()
+
+
+def test_a_shared_file_with_a_replays_field_is_refused_as_before():
+    _, flagged = _flagged_and_plain()
+    doc = json.loads(flagged.body)
+    doc["observations"][0]["options"][0]["replays"] = False
+    problems = check(flagged.relpath, (json.dumps(doc, indent=2, sort_keys=True) + "\n").encode())
+    assert any("unknown field" in p and "replays" in p for p in problems)

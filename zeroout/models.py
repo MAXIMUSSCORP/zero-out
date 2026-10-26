@@ -15,6 +15,7 @@ STATUSES = (
 class Option:
     key: str
     label: str
+    replays: bool | None = None  # the model's word that this option only repeats a menu or goes back; None = unknown
 
 
 @dataclass

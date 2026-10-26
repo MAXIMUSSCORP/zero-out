@@ -785,3 +785,41 @@ def test_the_travel_fixture_gives_every_key_its_derived_label_and_only_the_star_
     for k, label in want.items():
         assert fill_label(shifted.get(k, ""), k, TRAVEL) == label
     assert [k for k in want if option_replays(shifted.get(k, ""), k, TRAVEL)] == ["*"]
+
+
+def test_a_true_flag_counts_only_when_the_models_own_label_reads_like_navigation():
+    from zeroout.menu_text import option_replays
+    assert option_replays("Repeat these options", "*", "Press star.", True) is True
+    assert option_replays("Billing", "1", "For billing, press 1.", True) is False
+    assert option_replays("Billing", "1", "", True) is False
+    assert option_replays("", "1", "For billing, press 1.", True) is False
+
+
+def test_a_false_flag_never_unmarks_a_replay_the_words_show():
+    from zeroout.menu_text import option_replays
+    assert option_replays("", "*", "To repeat these options, press the star key.", False) is True
+    assert option_replays("Repeat these options", "*", "Press star.", False) is True  # the stored label is the rule
+    for flag in (None, "true", 1, 0, [], {}):
+        assert option_replays("", "*", "To repeat these options, press the star key.", flag) is True
+        assert option_replays("", "1", "For billing, press 1.", flag) is False
+
+
+def test_a_true_flag_is_checked_against_the_derived_label_not_a_shifted_stored_one():
+    from zeroout.menu_text import option_replays
+    assert option_replays("To repeat these options", "7", TRAVEL, True) is False
+    assert option_replays("To return to the main menu", "2",
+                          "For sales press 1. For support press 2. To return to the main menu press 9.", True) is False
+    assert option_replays("Billing", "1", "For billing, press 1.", True) is False
+    assert option_replays("Repeat these options", "*", "", True) is True
+    assert option_replays("Repeat these options", "*", None, True) is True
+
+
+@pytest.mark.parametrize("prompt,key", [
+    ("To start over with a new booking, press 2.", "2"),
+    ("For questions about the main menu items on our website, press 3.", "3"),
+    ("To go back to a previous order, press 4.", "4"),
+])
+def test_a_true_flag_cannot_make_a_choice_a_replay_when_the_words_show_it_is_not(prompt, key):
+    from zeroout.menu_text import option_replays
+    assert option_replays("Start over", key, prompt, True) is False
+    assert option_replays("", key, prompt, True) is False

@@ -581,8 +581,8 @@ def test_prompt_text_covering_half_or_more_is_kept():
 def test_fallback_only_for_a_menu():
     o = hear_menu("Thank you.", outcome="human")
     assert o.prompt_text == ""
-    o = hear_menu("Please hold.", outcome="hold")
-    assert o.prompt_text == "Please hold."
+    o = hear_menu("Please hold.", outcome="needs_input")
+    assert o.prompt_text == "Please hold." and o.outcome == "needs_input"
 
 
 def test_fallback_ignores_a_repeat_after_the_menu_ended():
@@ -622,3 +622,77 @@ def test_prompt_pairs_a_split_press_sentence_with_the_words_before_it():
     assert 'the next sentence is only "Press N", the label belongs to N' in PROMPT
     assert "the words before the key phrase" in PROMPT
     assert "Never pair a key with the sentence that follows it." in PROMPT
+
+
+def test_options_carry_the_models_replays_flag_and_a_non_bool_flag_is_unknown():
+    o = parse_observation(raw(options=[
+        {"key": "1", "label": "billing", "replays": False}, {"key": "*", "label": "repeat", "replays": True},
+        {"key": "2", "label": "sales"}, {"key": "3", "label": "x", "replays": "true"},
+        {"key": "4", "label": "y", "replays": 1}, {"key": "5", "label": "z", "replays": None}]))
+    assert [(x.key, x.replays) for x in o.options] == [
+        ("1", False), ("*", True), ("2", None), ("3", None), ("4", None), ("5", None)]
+
+
+def test_a_persons_options_lose_their_flags_with_their_labels():
+    o = parse_observation(raw(outcome="human", options=[{"key": "1", "label": "Dana", "replays": True}]))
+    assert o.options == [Option("1", "")] and o.options[0].replays is None
+
+
+def test_prompt_asks_for_a_plain_label_and_a_replays_flag():
+    from zeroout.listen import PROMPT
+    p = " ".join(PROMPT.split())
+    assert '"options": [{"key": str, "label": str, "replays": bool}]' in p
+    assert "a short, plain name for the choice" in p and "never from the sentence that follows it" in p
+    assert 'without "press N", "If you", "For" or "To" framing' in p
+    assert "replays: true only when the option just repeats the current menu" in p
+    assert "returns to a previous or main menu, or starts over" in p
+    assert 'A sentence that is only "Press N" belongs to the sentence before it.' in p
+
+
+def test_hear_words_keeps_the_flag_through_the_pipeline():
+    t = fake_transcribe(words_of("For", "billing", "press", "1.", "To", "repeat", "press", "star."))
+    reply = raw(prompt_text="For billing press 1. To repeat press star.", prompt_seconds=3.8,
+                options=[{"key": "1", "label": "Billing", "replays": False},
+                         {"key": "*", "label": "Repeat", "replays": True}])
+    heard, obs = hear_words(make_settings(), make_wav(), transcribe=t, chat=lambda s, m, ms: reply)
+    assert [(o.key, o.replays) for o in obs.options] == [("1", False), ("*", True)]
+
+
+@pytest.mark.parametrize("outcome", ["hangup", "hold"])
+def test_a_hangup_or_hold_that_still_offered_two_spoken_keypad_options_is_a_menu(outcome):
+    t = fake_transcribe(words_of("For", "billing", "press", "1.", "For", "sales", "press", "2.", "Goodbye."))
+    reply = raw(outcome=outcome, prompt_text="For billing press 1. For sales press 2. Goodbye.", prompt_seconds=3.8,
+                options=[{"key": "1", "label": "billing"}, {"key": "2", "label": "sales"}])
+    heard, obs = hear_words(make_settings(), make_wav(), transcribe=t, chat=lambda s, m, ms: reply)
+    assert heard and obs.outcome == "menu" and [x.key for x in obs.options] == ["1", "2"]
+
+
+def test_two_invented_keys_on_a_real_hangup_do_not_make_a_menu():
+    t = fake_transcribe(words_of("The", "call", "has", "ended.", "Goodbye."))
+    reply = raw(outcome="hangup", prompt_text="Goodbye.", prompt_seconds=2.0,
+                options=[{"key": "1", "label": "a"}, {"key": "2", "label": "b"}])
+    heard, obs = hear_words(make_settings(), make_wav(), transcribe=t, chat=lambda s, m, ms: reply)
+    assert heard and obs.outcome == "hangup" and obs.options == []
+
+
+def test_one_spoken_option_is_not_enough_to_turn_a_hangup_into_a_menu():
+    t = fake_transcribe(words_of("For", "billing", "press", "1.", "Goodbye."))
+    reply = raw(outcome="hangup", prompt_text="For billing press 1. Goodbye.", prompt_seconds=3.0,
+                options=[{"key": "1", "label": "billing"}, {"key": "2", "label": "invented"}])
+    assert hear_words(make_settings(), make_wav(), transcribe=t, chat=lambda s, m, ms: reply)[1].outcome == "hangup"
+
+
+@pytest.mark.parametrize("outcome,options", [
+    ("hangup", []), ("hold", []), ("hangup", [{"key": "1", "label": "a"}]),
+    ("human", [{"key": "1", "label": "a"}, {"key": "2", "label": "b"}]),
+    ("voicemail", [{"key": "1", "label": "a"}, {"key": "2", "label": "b"}]),
+    ("needs_input", [{"key": "1", "label": "a"}, {"key": "2", "label": "b"}]),
+    ("hangup", [{"key": "1", "label": "a"}, {"key": "2", "label": "b"}]),  # parse itself never coerces
+])
+def test_parse_keeps_the_models_outcome(outcome, options):
+    assert parse_observation(raw(outcome=outcome, options=options)).outcome == outcome
+
+
+def test_prompt_says_a_menu_stays_a_menu_when_the_call_later_ends():
+    from zeroout.listen import PROMPT
+    assert "If the system offers keypad options the outcome is menu" in " ".join(PROMPT.split())

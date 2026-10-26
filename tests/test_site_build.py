@@ -575,3 +575,14 @@ def test_a_stored_replay_label_still_says_replays_a_menu_when_the_transcript_der
     site_build.build(trees, out, today=TODAY)
     html = page(out, "8885550199")
     assert html.count("Replays a menu") == 1 and 'key sm">#</span>' in html
+
+
+def test_an_unexpected_replays_field_in_an_option_is_never_echoed(dirs):
+    trees, out = dirs
+    o = obs(keys=("1", "2"))
+    o["options"][1]["replays"] = True
+    put(trees, "8885550199", "a", "2026-10-01", [o])
+    r = site_build.build(trees, out, today=TODAY)
+    assert r["companies"] == 1
+    html = page(out, "8885550199")
+    assert "replays" not in html.replace("Replays a menu", "").lower().replace(".replays", "")

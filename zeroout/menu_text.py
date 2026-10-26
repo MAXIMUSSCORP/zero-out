@@ -246,16 +246,20 @@ def _navigates(derived):
     return False
 
 
-def option_replays(stored_label, key, prompt_text) -> bool:
-    """Whether an option only replays a menu. The words the transcript gives that key decide, and only when
-    a navigation phrase opens them and they are short; the stored label can be shifted by a model, so it is
-    read only when nothing can be derived. Never raises."""
+def option_replays(stored_label, key, prompt_text, flag=None) -> bool:
+    """Whether an option only replays a menu. When the transcript gives the key words, they decide alone and
+    only when a navigation phrase opens them and they are short: a model's flag, which can be shifted with its
+    label, is not read. With nothing to derive, the stored label decides, and a True flag agrees only with a
+    label that reads like navigation. Never raises."""
     try:
         derived = _derive(str(key), prompt_text) if isinstance(prompt_text, str) else ""
         if derived:
             return _navigates(derived)
-        return (isinstance(stored_label, str) and not _BARE.match(stored_label.strip(" .,;:!?"))
-                and replays_menu(stored_label))
+        if not isinstance(stored_label, str):
+            return False
+        if not _BARE.match(stored_label.strip(" .,;:!?")) and replays_menu(stored_label):
+            return True
+        return flag is True and replays_menu(stored_label)
     except Exception:
         return False
 

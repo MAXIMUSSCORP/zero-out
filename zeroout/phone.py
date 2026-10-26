@@ -125,7 +125,7 @@ def retry_step(path: str) -> Step:
 def _filtered(obs: Observation) -> Observation:
     """A microphone hears the room: keep a menu's wording, minus anything that looks like a number."""
     text = _redact(obs.prompt_text) if obs.outcome == "menu" else ""
-    return Observation(text, [Option(o.key, _redact(o.label)) for o in obs.options],
+    return Observation(text, [Option(o.key, _redact(o.label), o.replays) for o in obs.options],
                        obs.outcome, obs.prompt_seconds)
 
 

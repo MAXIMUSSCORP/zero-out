@@ -686,3 +686,99 @@ def test_the_derived_label_decides_a_replay_and_a_shifted_stored_label_cannot_hi
     kids = {c["key"]: c for c in tree.tree_json(conn, cid)["children"]}
     assert kids["#"]["replays"] is True and kids["*"]["replays"] is True and kids["1"]["replays"] is False
     assert tree.unexplored(conn, cid, 4) == ["1"]
+
+
+def flagged(conn, cid, rid, text, opts, path=""):
+    m(conn, cid, rid, path, Observation(text, [Option(k, lab, flag) for k, lab, flag in opts], "menu", 3.0))
+
+
+def test_the_replays_flag_round_trips_through_merge_options_json_and_tree_json():
+    conn, cid, rid = setup()
+    flagged(conn, cid, rid, "For billing press 1. To go back press 2.",
+            [("1", "Billing", False), ("2", "Go back", True), ("3", "Plain", None)])
+    stored = json.loads(db.get_node(conn, cid, "")["options_json"])
+    assert stored == [{"key": "1", "label": "Billing", "replays": False},
+                      {"key": "2", "label": "Go back", "replays": True}, {"key": "3", "label": "Plain"}]
+    t = tree.tree_json(conn, cid)
+    assert {o["key"]: o["replays"] for o in t["options"]} == {"1": False, "2": True, "3": False}
+    assert {c["key"]: c["replays"] for c in t["children"]} == {"1": False, "2": True, "3": False}
+
+
+def test_a_true_flag_on_a_real_option_does_not_hide_it():
+    conn, cid, rid = setup()
+    flagged(conn, cid, rid, "For billing press 1. For sales press 2.", [("1", "Billing", True), ("2", "Sales", False)])
+    assert tree.unexplored(conn, cid, 4) == ["1", "2"]
+    assert {c["key"]: c["replays"] for c in tree.tree_json(conn, cid)["children"]} == {"1": False, "2": False}
+
+
+def test_a_true_flag_on_a_navigation_label_is_a_replay_even_when_the_words_are_silent():
+    conn, cid, rid = setup()
+    flagged(conn, cid, rid, "For billing press 1. Press star.", [("1", "Billing", False), ("*", "Repeat these options", True)])
+    assert tree.unexplored(conn, cid, 4) == ["1"]
+
+
+def test_a_false_flag_cannot_unmark_a_replay_the_words_show():
+    conn, cid, rid = setup()
+    flagged(conn, cid, rid, "For billing press 1. To repeat these options, press the star key.",
+            [("1", "Billing", False), ("*", "Repeat", False)])
+    assert tree.unexplored(conn, cid, 4) == ["1"]
+
+
+def test_flags_that_mark_every_option_are_ignored():
+    conn, cid, rid = setup()
+    flagged(conn, cid, rid, "For billing press 1. For sales press 2.", [("1", "Billing", True), ("2", "Repeat", True)])
+    assert tree.unexplored(conn, cid, 4) == ["1", "2"]
+
+
+def test_flags_that_mark_more_than_half_of_a_menu_are_not_trusted_but_half_or_less_are():
+    def opts(*flags):
+        return [{"key": str(i + 1), "label": "x", "replays": f} for i, f in enumerate(flags)]
+    assert tree._trusted_flags(opts(True, True, True, False)) == {"1": None, "2": None, "3": None, "4": None}
+    assert tree._trusted_flags(opts(True, True)) == {"1": None, "2": None}
+    assert tree._trusted_flags(opts(True)) == {"1": None}
+    assert tree._trusted_flags(opts(True, True, False, False)) == {"1": True, "2": True, "3": False, "4": False}
+    assert tree._trusted_flags(opts(True, False)) == {"1": True, "2": False}
+    assert tree._trusted_flags(opts(None, False, None)) == {"1": None, "2": False, "3": None}
+    assert tree._trusted_flags([]) == {}
+
+
+def test_a_flag_never_matters_where_the_transcript_gives_the_key_words():
+    conn, cid, rid = setup()
+    text = ("To start over with a new booking, press 1. For questions about the main menu items on our website, "
+            "press 2. For sales, press 3.")
+    flagged(conn, cid, rid, text, [("1", "Start over", True), ("2", "Main menu items", True), ("3", "Sales", False)])
+    assert tree.unexplored(conn, cid, 4) == ["1", "2", "3"]
+
+
+def test_a_confirming_merge_refreshes_the_stored_flags_and_a_bad_one_does_not_outlive_it():
+    conn, cid, rid = setup()
+    flagged(conn, cid, rid, "For billing press 1. For sales press 2.", [("1", "Repeat", True), ("2", "Sales", False)])
+    assert json.loads(db.get_node(conn, cid, "")["options_json"])[0]["replays"] is True
+    assert m(conn, cid, rid, "", Observation("For billing press 1. For sales press 2.",
+                                             [Option("1", "Billing", False), Option("2", "Sales", None)], "menu", 3.0)) == "confirmed"
+    stored = json.loads(db.get_node(conn, cid, "")["options_json"])
+    assert [o.get("replays") for o in stored] == [False, False]
+    assert tree.unexplored(conn, cid, 4) == ["1", "2"]
+
+
+def test_a_confirming_merge_with_no_flags_keeps_the_stored_ones():
+    conn, cid, rid = setup()
+    flagged(conn, cid, rid, "For billing press 1. To go back press 2.", [("1", "Billing", False), ("2", "Back", True)])
+    m(conn, cid, rid, "", Observation("For billing press 1. To go back press 2.", [Option("1", "Billing"), Option("2", "Back")], "menu", 3.0))
+    assert [o.get("replays") for o in json.loads(db.get_node(conn, cid, "")["options_json"])] == [False, True]
+
+
+def test_with_no_flag_the_word_rules_still_decide():
+    conn, cid, rid = setup()
+    text = "For billing press 1. To repeat these options, press the star key. For the main menu, press 3."
+    flagged(conn, cid, rid, text, [("1", "Billing", None), ("*", "Repeat", None), ("3", "x", None)])
+    kids = {c["key"]: c["replays"] for c in tree.tree_json(conn, cid)["children"]}
+    assert kids == {"1": False, "*": True, "3": True}
+    assert tree.unexplored(conn, cid, 4) == ["1"]
+
+
+def test_a_flag_survives_a_confirming_merge():
+    conn, cid, rid = setup()
+    for _ in range(2):
+        flagged(conn, cid, rid, "For billing press 1. To repeat press star.", [("1", "Billing", False), ("*", "Repeat", True)])
+    assert [o.get("replays") for o in json.loads(db.get_node(conn, cid, "")["options_json"])] == [False, True]
