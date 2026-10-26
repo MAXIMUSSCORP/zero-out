@@ -9,7 +9,7 @@ Built for the NVIDIA x Nebius Global AI Hackathon (Best Apps & Agents). Every mo
 Zero-Out runs on your own computer. It needs Python 3.11.4 or newer. Install it with one of these:
 
 ```bash
-pipx install git+https://github.com/<owner>/zero-out    # or: uv tool install git+https://github.com/<owner>/zero-out
+pipx install git+https://github.com/MAXIMUSSCORP/zero-out    # or: uv tool install git+https://github.com/MAXIMUSSCORP/zero-out
 zeroout setup
 zeroout run
 ```
@@ -38,7 +38,7 @@ The microphone audio is never saved. If a person or a voicemail answers, none of
 
 ## Share with the community
 
-Sharing is not live yet. Once it is live, trees will be shared through the public repo [MAXIMUSSCORP/zero-out-trees](https://github.com/MAXIMUSSCORP/zero-out-trees), and a read-only website built from that repo will be at https://maximusscorp.github.io/zero-out-trees/.
+Trees are shared through the public repo [MAXIMUSSCORP/zero-out-trees](https://github.com/MAXIMUSSCORP/zero-out-trees), and a read-only website built from that repo is at https://maximusscorp.github.io/zero-out-trees/.
 
 **Share with the community** is on a company page, or run `zeroout contribute --company-id N`. It previews the exact file first. The file is redacted: digit runs, emails and numbers in names are replaced. It holds no audio, no costs, no phone number of yours, and only dates.
 
