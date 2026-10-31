@@ -1413,7 +1413,8 @@ def test_voice_root_shows_examples_and_tips_in_place_of_ask(env, monkeypatch):
     assert "This line suggests saying:" in t
     assert "&ldquo;I need help changing my reservation&rdquo;" in t
     assert "Tips that work on most voice assistants" in t
-    assert "say &ldquo;representative&rdquo; or &ldquo;agent&rdquo;" in t
+    assert "say &ldquo;representative&rdquo;, &ldquo;agent&rdquo; or &ldquo;operator&rdquo;" in t
+    assert "If that doesn&rsquo;t work, press 0 or say &ldquo;Transcription Unavailable&rdquo;." in t
     assert f'hx-post="/c/{env.cid}/ask"' not in t
 
 
@@ -1453,6 +1454,7 @@ def test_deeper_voice_option_keeps_connect_me_and_shows_its_tips(env, monkeypatc
     assert "Connect me presses keys" not in t
     body = t[t.index('<span class="state warn">Voice menu</span>'):]
     assert "This line suggests saying:" in body and "say" in body and "representative" in body
+    assert "&ldquo;operator&rdquo;" in body and "&ldquo;Transcription Unavailable&rdquo;" in body
     assert body.count(f'action="/c/{env.cid}/connect"') >= 1
     assert 'id="s-ask"' in t  # the root is a keypad menu, so Ask stays
 

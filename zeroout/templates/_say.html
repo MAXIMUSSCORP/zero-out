@@ -8,12 +8,14 @@
 </div>
 {% endif %}
 {% endmacro %}
-{% macro person_tip() %}To reach a person, say &ldquo;representative&rdquo; or &ldquo;agent&rdquo;, and say it again if it asks.{% endmacro %}
+{% macro person_tip() %}To reach a person, say &ldquo;representative&rdquo;, &ldquo;agent&rdquo; or &ldquo;operator&rdquo;, and say it again if it asks.{% endmacro %}
+{% macro fallback_tip() %}If that doesn&rsquo;t work, press 0 or say &ldquo;Transcription Unavailable&rdquo;.{% endmacro %}
 {% macro tips(text) %}
 {% set has_examples = (text | spoken_examples) | length > 0 %}
 <h3>Tips that work on most voice assistants</h3>
 <ul class="list">
   <li>{{ person_tip() }}</li>
+  <li>{{ fallback_tip() }}</li>
   <li>{% if has_examples %}Use a few words, like the examples above.{% else %}Use a few words that say what you need.{% endif %}</li>
   <li>If it doesn&rsquo;t understand, repeat the same short phrase rather than a longer one.</li>
 </ul>

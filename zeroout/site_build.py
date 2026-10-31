@@ -245,7 +245,8 @@ def _label_for(node, parent):
 
 
 VOICE = "Voice menu: you say what you need; there are no keys to press."
-TIP = 'To reach a person, try saying "representative" or "agent".'
+TIP = ('To reach a person, try saying "representative", "agent" or "operator". '
+       'If that doesn\'t work, press 0 or say "Transcription Unavailable".')
 KEY_ORDER = "1234567890*#"
 
 

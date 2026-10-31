@@ -534,7 +534,8 @@ def test_voice_menu_lists_spoken_examples_and_a_general_tip(dirs):
     assert ('<p class="lbl">This line suggests saying:</p><ul class="eg">'
             "<li>I need help changing my reservation</li><li>I&#x27;d like to book a flight</li></ul>") in html
     assert html.index("Voice menu:") < html.index("This line suggests saying:") < html.index("General tip")
-    assert "try saying &quot;representative&quot; or &quot;agent&quot;." in html
+    assert ("try saying &quot;representative&quot;, &quot;agent&quot; or &quot;operator&quot;. "
+            "If that doesn&#x27;t work, press 0 or say &quot;Transcription Unavailable&quot;.") in html
 
 
 def test_voice_menu_without_examples_still_gets_the_tip_and_no_empty_list(dirs):
