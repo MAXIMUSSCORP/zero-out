@@ -2,7 +2,7 @@
 
 A public, community-maintained map of US toll-free phone menus (IVRs). Browse a company's whole menu tree, ask "which buttons for X?", or press **Connect me** and get a call back once the company's hold queue is reached. Every crawl and every Connect me call feeds observations back into the shared tree, which shows confirmations, staleness and a change timeline.
 
-Built for the NVIDIA x Nebius Global AI Hackathon (Best Apps & Agents). Every model is an NVIDIA open model. Nemotron runs on **Nebius Token Factory**; speech recognition runs locally with NVIDIA **Parakeet**, because no Token Factory model takes audio.
+Originally built for the NVIDIA x Nebius Global AI Hackathon (Best Apps & Agents), and now carried on as a personal side project. Every model is an NVIDIA open model. Nemotron runs on **Nebius Token Factory**; speech recognition runs locally with NVIDIA **Parakeet**, because no Token Factory model takes audio.
 
 ## Quick start
 
