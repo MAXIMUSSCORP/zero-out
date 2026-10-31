@@ -1,1 +1,764 @@
-[]
+[
+ {
+  "file": "1/2-root-1.wav",
+  "options": [],
+  "outcome": "speech_menu"
+ },
+ {
+  "file": "2/3-root-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Membership, Executive 2% rewards, and Costco services"
+   },
+   {
+    "key": "2",
+    "label": "Costco City Visa, Costco shop card, and payment options accepted at Costco"
+   },
+   {
+    "key": "3",
+    "label": "Costco.com orders, returns, and all other website inquiries"
+   },
+   {
+    "key": "4",
+    "label": "Warehouse product and returns information, local Costco phone number, hours, and address"
+   },
+   {
+    "key": "5",
+    "label": "Costco Travel"
+   },
+   {
+    "key": "*",
+    "label": "Repeat this information"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/4-1-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Need more time to find your member number"
+   },
+   {
+    "key": "2",
+    "label": "Not a member yet"
+   }
+  ],
+  "outcome": "needs_input"
+ },
+ {
+  "file": "2/4-2-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Costco City Visa assistance: payments, applications, other credit card questions"
+   },
+   {
+    "key": "2",
+    "label": "Costco Shop Cards"
+   },
+   {
+    "key": "3",
+    "label": "Payment options accepted at Costco"
+   },
+   {
+    "key": "*",
+    "label": "Repeat this information"
+   },
+   {
+    "key": "#",
+    "label": "Return to the previous menu"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/4-2.#-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Membership, Executive 2% rewards, and Costco services"
+   },
+   {
+    "key": "2",
+    "label": "Costco City Visa, Costco shop card, and payment options accepted at Costco"
+   },
+   {
+    "key": "3",
+    "label": "Costco.com orders, returns, and all other website inquiries"
+   },
+   {
+    "key": "4",
+    "label": "Warehouse product and returns information, local Costco phone number, hours, and address"
+   },
+   {
+    "key": "5",
+    "label": "Costco Travel"
+   },
+   {
+    "key": "*",
+    "label": "Repeat this information"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/4-2.star-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Costco City Visa assistance: payments, applications, other credit card questions"
+   },
+   {
+    "key": "2",
+    "label": "Costco Shop Cards"
+   },
+   {
+    "key": "3",
+    "label": "Payment options accepted at Costco"
+   },
+   {
+    "key": "*",
+    "label": "Repeat this information"
+   },
+   {
+    "key": "#",
+    "label": "Return to the previous menu"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/4-3-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Costco.com order already placed: status, returning, or canceling"
+   },
+   {
+    "key": "2",
+    "label": "Product information or help placing an order online"
+   },
+   {
+    "key": "3",
+    "label": "Status of a return or refund"
+   },
+   {
+    "key": "4",
+    "label": "Membership or Executive 2% reward program questions"
+   },
+   {
+    "key": "*",
+    "label": "Repeat this information"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/4-4-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Product information"
+   },
+   {
+    "key": "2",
+    "label": "Returns, warranty, or technical support information"
+   },
+   {
+    "key": "3",
+    "label": "Local Costco phone number, business hours, and address"
+   },
+   {
+    "key": "*",
+    "label": "Repeat this information"
+   },
+   {
+    "key": "#",
+    "label": "Return to the previous menu"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/4-5-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Rental cars"
+   },
+   {
+    "key": "2",
+    "label": "Cruises"
+   },
+   {
+    "key": "3",
+    "label": "Specialty travel or guided vacations"
+   },
+   {
+    "key": "4",
+    "label": "Travel within the United States"
+   },
+   {
+    "key": "5",
+    "label": "Canada vacation packages"
+   },
+   {
+    "key": "6",
+    "label": "All other international travel"
+   },
+   {
+    "key": "7",
+    "label": "Travel insurance, in-travel or post-travel assistance"
+   },
+   {
+    "key": "*",
+    "label": "Repeat these options"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/4-star-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Membership, Executive 2% rewards, and Costco services"
+   },
+   {
+    "key": "2",
+    "label": "Costco City Visa, Costco shop card, and payment options accepted at Costco"
+   },
+   {
+    "key": "3",
+    "label": "Costco.com orders, returns, and all other website inquiries"
+   },
+   {
+    "key": "4",
+    "label": "Warehouse product and returns information, local Costco phone number, hours, and address"
+   },
+   {
+    "key": "5",
+    "label": "Costco Travel"
+   },
+   {
+    "key": "*",
+    "label": "Repeat this information"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/4-star.1-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Need more time to find your member number"
+   },
+   {
+    "key": "2",
+    "label": "Not a member yet"
+   }
+  ],
+  "outcome": "needs_input"
+ },
+ {
+  "file": "2/4-star.2-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Costco City Visa assistance: payments, applications, other credit card questions"
+   },
+   {
+    "key": "2",
+    "label": "Costco Shop Cards"
+   },
+   {
+    "key": "3",
+    "label": "Payment options accepted at Costco"
+   },
+   {
+    "key": "*",
+    "label": "Repeat this information"
+   },
+   {
+    "key": "#",
+    "label": "Return to the previous menu"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/4-star.3-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Costco.com order already placed: status, returning, or canceling"
+   },
+   {
+    "key": "2",
+    "label": "Product information or help placing an order online"
+   },
+   {
+    "key": "3",
+    "label": "Status of a return or refund"
+   },
+   {
+    "key": "4",
+    "label": "Membership or Executive 2% reward program questions"
+   },
+   {
+    "key": "*",
+    "label": "Repeat this information"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/4-star.4-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Product information"
+   },
+   {
+    "key": "2",
+    "label": "Returns, warranty, or technical support information"
+   },
+   {
+    "key": "3",
+    "label": "Local Costco phone number, business hours, and address"
+   },
+   {
+    "key": "*",
+    "label": "Repeat this information"
+   },
+   {
+    "key": "#",
+    "label": "Return to the previous menu"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/4-star.5-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Rental cars"
+   },
+   {
+    "key": "2",
+    "label": "Cruises"
+   },
+   {
+    "key": "3",
+    "label": "Specialty travel or guided vacations"
+   },
+   {
+    "key": "4",
+    "label": "Travel within the United States"
+   },
+   {
+    "key": "5",
+    "label": "Canada vacation packages"
+   },
+   {
+    "key": "6",
+    "label": "All other international travel"
+   },
+   {
+    "key": "7",
+    "label": "Travel insurance, in-travel or post-travel assistance"
+   },
+   {
+    "key": "*",
+    "label": "Repeat these options"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/4-star.star-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Membership, Executive 2% rewards, and Costco services"
+   },
+   {
+    "key": "2",
+    "label": "Costco City Visa, Costco shop card, and payment options accepted at Costco"
+   },
+   {
+    "key": "3",
+    "label": "Costco.com orders, returns, and all other website inquiries"
+   },
+   {
+    "key": "4",
+    "label": "Warehouse product and returns information, local Costco phone number, hours, and address"
+   },
+   {
+    "key": "5",
+    "label": "Costco Travel"
+   },
+   {
+    "key": "*",
+    "label": "Repeat this information"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/5-2.1-1.wav",
+  "options": [],
+  "outcome": "speech_menu"
+ },
+ {
+  "file": "2/5-2.2-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Shop card offered as part of a new member sign-up promotion"
+   },
+   {
+    "key": "2",
+    "label": "Shop card ordered online or offered as part of a Costco.com purchase"
+   },
+   {
+    "key": "3",
+    "label": "All other shop card questions"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/5-2.2.1-1.wav",
+  "options": [],
+  "outcome": "hangup"
+ },
+ {
+  "file": "2/5-2.3-1.wav",
+  "options": [
+   {
+    "key": "0",
+    "label": "Speak with a Costco representative"
+   },
+   {
+    "key": "*",
+    "label": "Repeat this information"
+   },
+   {
+    "key": "#",
+    "label": "Return to the previous menu"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/5-3.1-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Order status"
+   },
+   {
+    "key": "2",
+    "label": "Costco Logistics delivery questions"
+   },
+   {
+    "key": "3",
+    "label": "Cancellations or changes to your order"
+   },
+   {
+    "key": "4",
+    "label": "Return or replace an item on your order"
+   },
+   {
+    "key": "5",
+    "label": "Costco technical and warranty support on electronics and appliances"
+   },
+   {
+    "key": "*",
+    "label": "Repeat this information"
+   },
+   {
+    "key": "#",
+    "label": "Return to the previous menu"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/5-3.2-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Product information"
+   },
+   {
+    "key": "2",
+    "label": "Help placing an order online"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/5-3.3-1.wav",
+  "options": [
+   {
+    "key": "8",
+    "label": "I do not have my order number"
+   }
+  ],
+  "outcome": "needs_input"
+ },
+ {
+  "file": "2/5-3.4-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Membership, Executive 2% rewards, and Costco services"
+   },
+   {
+    "key": "2",
+    "label": "Costco City Visa, Costco shop card, and payment options accepted at Costco"
+   },
+   {
+    "key": "3",
+    "label": "Costco.com orders, returns, and all other website inquiries"
+   },
+   {
+    "key": "4",
+    "label": "Warehouse product and returns information, local Costco phone number, hours, and address"
+   },
+   {
+    "key": "5",
+    "label": "Costco Travel"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/5-5.1-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "New bookings or changes to an existing reservation"
+   },
+   {
+    "key": "2",
+    "label": "Help with your online account or booking on CostcoTravel.com"
+   },
+   {
+    "key": "3",
+    "label": "In-travel assistance"
+   },
+   {
+    "key": "*",
+    "label": "Repeat these options"
+   },
+   {
+    "key": "#",
+    "label": "Return to the previous menu"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/5-5.2-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "New booking"
+   },
+   {
+    "key": "2",
+    "label": "Existing bookings"
+   },
+   {
+    "key": "*",
+    "label": "Repeat these options"
+   },
+   {
+    "key": "#",
+    "label": "Return to the previous menu"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/5-5.3-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Adventures by Disney"
+   },
+   {
+    "key": "2",
+    "label": "Trafalgar and all others, including luxury gold vacation of a lifetime"
+   },
+   {
+    "key": "3",
+    "label": "Lion World Travel"
+   },
+   {
+    "key": "*",
+    "label": "Repeat these options"
+   },
+   {
+    "key": "#",
+    "label": "Return to the previous menu"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/5-5.4-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Hawaii"
+   },
+   {
+    "key": "2",
+    "label": "California including Disneyland, or Florida including Disney World"
+   },
+   {
+    "key": "3",
+    "label": "Arizona, Colorado, Las Vegas, or Washington State"
+   },
+   {
+    "key": "4",
+    "label": "Nashville, New Orleans, New York, or Texas"
+   },
+   {
+    "key": "5",
+    "label": "All other destinations in the United States"
+   },
+   {
+    "key": "6",
+    "label": "Sightseeing and activities"
+   },
+   {
+    "key": "*",
+    "label": "Repeat these options"
+   },
+   {
+    "key": "#",
+    "label": "Return to the previous menu"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/5-5.5-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Travel within Canada"
+   },
+   {
+    "key": "2",
+    "label": "Sightseeing and activities"
+   },
+   {
+    "key": "*",
+    "label": "Repeat these options"
+   },
+   {
+    "key": "#",
+    "label": "Return to the previous menu"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/5-5.6-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Mexico"
+   },
+   {
+    "key": "2",
+    "label": "Caribbean, including Puerto Rico"
+   },
+   {
+    "key": "3",
+    "label": "Costa Rica"
+   },
+   {
+    "key": "4",
+    "label": "Europe"
+   },
+   {
+    "key": "5",
+    "label": "Tahiti, Fiji, or the Cook Islands"
+   },
+   {
+    "key": "7",
+    "label": "Africa"
+   },
+   {
+    "key": "8",
+    "label": "Sightseeing and activities"
+   },
+   {
+    "key": "*",
+    "label": "Repeat these options"
+   },
+   {
+    "key": "#",
+    "label": "Return to the previous menu"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "2/5-5.7-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "Zurich Travel Insurance"
+   },
+   {
+    "key": "2",
+    "label": "Assistance while traveling"
+   }
+  ],
+  "outcome": "menu"
+ },
+ {
+  "file": "5/6-1-1.wav",
+  "options": [],
+  "outcome": "needs_input"
+ },
+ {
+  "file": "5/6-root-1.wav",
+  "options": [
+   {
+    "key": "1",
+    "label": "English"
+   },
+   {
+    "key": "2",
+    "label": "Français"
+   },
+   {
+    "key": "3",
+    "label": "Español"
+   },
+   {
+    "key": "4",
+    "label": "Mandarin"
+   },
+   {
+    "key": "5",
+    "label": "Cantonese"
+   }
+  ],
+  "outcome": "menu"
+ }
+]
